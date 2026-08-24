@@ -1,0 +1,19 @@
+[project]
+name = "ophthalmology-llm"
+version = "0.1.0"
+description = "ML project for Ophthalmology LLM reporting"
+dependencies = [
+    "polars",
+    "fastexcel",
+    "pandas>=3.0.5",
+    "numpy>=2.5.2",
+    "scikit-learn>=1.9.0",
+    "matplotlib>=3.11.1",
+    "seaborn>=0.13.2",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest",
+    "ipykernel",
+]
