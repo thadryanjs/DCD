@@ -8,6 +8,7 @@
     - Don't bother with it on something like "read_file" where passing number will result in a harmless error - type checking this is a marginal improvement over just getting a FileNotFound error.
 - We're using `jupytext` to have clean scripts with good git diffs while also being able to compile to jupyter books. If you're an agent, ask about a skill for this. Some basics:
     - Any prints should occur at the end of a cell and start a new cell - so three smalls cells to instead of one larger one to print three things. It swill then read code/output/code/output/code/output not code/code/code/output/output/output.
+- All the imports go at the top! No exceptions!
 
 ## Project
 - Don't run the report preview - I usually have one going so this only invites confusion and mistakes.
