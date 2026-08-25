@@ -32,7 +32,12 @@ processed_dir = Path("/home/thadryan/Vaults/Projects/Work/Primary/DCD/Code/data/
 # ## 1. Load Processed Dataset
 #
 # %% [code]
-df = pl.read_parquet(processed_dir / "combined-dataset.parquet")
+try:
+    df = pl.read_parquet(processed_dir / "combined-dataset.parquet")
+except FileNotFoundError:
+    raise FileNotFoundError(
+        "combined-dataset.parquet not found. Run 00_process-dataset.py first."
+    )
 
 print(f"Dataset loaded: {df.shape}")
 
@@ -64,13 +69,7 @@ numeric_cols = [c for c in df.columns if df.schema[c].is_numeric() and c != "lab
 print(f"Numeric features: {numeric_cols}")
 
 # %% [code]
-# Calculate means by label
-means_by_label = df.group_by("label").agg(
-    [pl.col(c).mean().alias(f"{c}_mean") for c in numeric_cols]
-)
-
-print("Mean values by class:")
-print(means_by_label)
+print(f"Total features: {len(numeric_cols)}")
 
 # %% [code]
 # Calculate absolute differences
@@ -93,13 +92,14 @@ for col, mean_pos, mean_neg, diff in diffs:
 # Deep dive into missing data patterns.
 #
 # %% [code]
-# Missing count and percentage per column
-missing_stats = []
-for col in df.columns:
-    null_count = df.filter(pl.col(col).is_null()).height
-    total = df.height
-    pct = null_count / total * 100 if total > 0 else 0
-    missing_stats.append((col, null_count, pct))
+# Missing count and percentage per column (efficient: single scan with null_count())
+missing_stats = df.select([
+    pl.col(c).null_count().alias(f"{c}_nulls") for c in df.columns
+]).row(0)
+
+columns = df.columns
+missing_stats = [(col, missing_stats[i], missing_stats[i] / df.height * 100) 
+                 for i, col in enumerate(columns)]
 
 # Sort by missing percentage (descending)
 missing_stats.sort(key=lambda x: x[2], reverse=True)
@@ -144,8 +144,17 @@ if len(numeric_cols) > 1:
 # ### Visualization: Missingness Heatmap
 #
 # %% [code]
+# Ensure plots directory exists
+plots_dir = Path("../plots")
+plots_dir.mkdir(parents=True, exist_ok=True)
+
 # Create missingness matrix (rows = samples, cols = features)
 missing_matrix = missing_mask.select(numeric_cols).to_numpy()
+
+# OOM warning for large datasets
+if missing_matrix.size > 10_000_000:
+    mem_gb = missing_matrix.nbytes / (1024**3)
+    print(f"WARNING: Missingness matrix is {mem_gb:.2f} GB. Consider downsampling.")
 
 plt.figure(figsize=(12, 8))
 sns.heatmap(missing_matrix.T, cmap="viridis", cbar_kws={"label": "Missing (1) / Present (0)"})
@@ -153,9 +162,9 @@ plt.title("Missingness Heatmap by Feature")
 plt.xlabel("Sample Index")
 plt.ylabel("Feature")
 plt.tight_layout()
-plt.savefig("../plots/missingness-heatmap.png", dpi=150)
+plt.savefig(plots_dir / "missingness-heatmap.png", dpi=150)
 plt.show()
-print("\nHeatmap saved to ../plots/missingness-heatmap.png")
+print(f"\nHeatmap saved to {plots_dir / 'missingness-heatmap.png'}")
 
 # %% [code]
 # Missingness distribution: how many features are missing per row?
@@ -166,16 +175,19 @@ print("\nRows by Number of Missing Features:")
 print(missing_dist)
 
 # %% [code]
-# Visualize: distribution of missingness per row
+# Ensure plots directory exists
+plots_dir = Path("../plots")
+plots_dir.mkdir(parents=True, exist_ok=True)
+
 plt.figure(figsize=(10, 5))
 plt.bar(missing_dist["missing_count"], missing_dist["row_count"], color="steelblue")
 plt.xlabel("Number of Missing Features")
 plt.ylabel("Number of Rows")
 plt.title("Distribution of Missingness Across Features")
 plt.tight_layout()
-plt.savefig("../plots/missingness-distribution.png", dpi=150)
+plt.savefig(plots_dir / "missingness-distribution.png", dpi=150)
 plt.show()
-print("\nDistribution plot saved to ../plots/missingness-distribution.png")
+print(f"\nDistribution plot saved to {plots_dir / 'missingness-distribution.png'}")
 
 # %% [markdown]
 # ## 5. Feature Distribution Overview
@@ -184,19 +196,5 @@ print("\nDistribution plot saved to ../plots/missingness-distribution.png")
 print("Feature Statistics (all data):")
 print(df.select(numeric_cols).describe())
 
-# %% [markdown]
-# ## 6. Save Final Dataset
-# Export cleaned dataset for modeling.
-#
 # %% [code]
-output_path = processed_dir / "combined-dataset.parquet"
-
-# Ensure directory exists
-processed_dir.mkdir(parents=True, exist_ok=True)
-
-# Save dataset
-df.write_parquet(output_path)
-
-print(f"Dataset saved to: {output_path}")
-print(f"Shape: {df.shape}")
-print(f"Columns: {df.columns}")
+plt.close("all")  # Free memory after plotting
