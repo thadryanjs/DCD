@@ -15,3 +15,6 @@ render-report:
 
 preview-report:
     uv run quarto preview book/report.qmd
+
+compile-report:
+    uv run quarto render book/report.qmd --to html

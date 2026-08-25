@@ -10,4 +10,6 @@
     - Any prints should occur at the end of a cell and start a new cell - so three smalls cells to instead of one larger one to print three things. It swill then read code/output/code/output/code/output not code/code/code/output/output/output.
 
 ## Project
+- Don't run the report preview - I usually have one going so this only invites confusion and mistakes.
+- Don't execute code unless I say to - I usually run and selectively share output.
 - We're using `uv`. This means run commands need to be written `uv run {whatever}` not just `{whatever}`. This applies to writing the justfile commands as well.
