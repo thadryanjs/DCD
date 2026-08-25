@@ -1,8 +1,10 @@
 ---
-title: "Data Processing: Ophthalmology Dataset"
+title: "DCD Analysis Pipline"
 author: "Research Pipeline"
 date: last-modified
-format: 
+execute:
+  freeze: auto
+format:
   html:
     toc: true
     echo: true
