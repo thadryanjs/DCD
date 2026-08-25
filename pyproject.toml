@@ -12,6 +12,8 @@ dependencies = [
     "seaborn>=0.13.2",
     "jupytext>=1.19.5",
     "quarto-cli>=1.10.18",
+    "xgboost>=3.4.1",
+    "pyarrow>=25.0.1",
 ]
 
 [tool.uv]

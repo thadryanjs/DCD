@@ -15,7 +15,7 @@
 # ---
 
 # %% [markdown]
-# # Data Processing: Ophthalmology Cases
+# # Data Processing
 # A step-by-step proof of the data pipeline. We discover issues in the raw data and fix them immediately.
 #
 # %% [code]
@@ -76,11 +76,18 @@ print(df_neg_raw.select(key_cols).slice(0, 20))
 #
 # %% [code]
 def forward_populate_ids(df):
-    """Forward-fill Alias: each ID propagates down until the next ID."""
+    """Forward-fill Alias: each ID propagates down until the next ID.
+    Also creates an observation number for each row within each ID group."""
     alias_col = [c for c in df.columns if c.lower() == "alias"]
     if not alias_col:
         return df
-    return df.with_columns(pl.col(alias_col[0]).forward_fill())
+    df = df.with_columns(pl.col(alias_col[0]).forward_fill())
+    # Create observation number within each ID group
+    df = df.with_columns(
+        pl.col(alias_col[0]).alias("alias_filled"),
+        pl.int_range(0, pl.len()).cum_count().over(alias_col[0]).alias("observation")
+    )
+    return df
 
 # Proof on toy data
 demo = pl.DataFrame({"alias": [1, None, None, 2, None], "val": [10, 11, 12, 20, 21]})
@@ -92,7 +99,7 @@ df_pos = forward_populate_ids(df_pos_raw)
 df_neg = forward_populate_ids(df_neg_raw)
 
 print("\nPositive Cases (IDs Forward-Filled) - First 20 rows:")
-print(df_pos.select(["Alias", "Age"]).head(20))
+print(df_pos.select(["alias_filled", "observation", "Age"]).head(20))
 
 
 # %% [markdown]

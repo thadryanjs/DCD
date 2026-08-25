@@ -1,5 +1,5 @@
 ---
-title: "DCD Analysis Pipline"
+title: "DCD Analysis Pipeline"
 author: "Research Pipeline"
 date: last-modified
 execute:
@@ -16,3 +16,7 @@ format:
 ---
 
 {{< embed 00_process-dataset.ipynb echo=true >}}
+
+{{< embed 01_explore-data.ipynb echo=true >}}
+
+{{< embed 02_model-cross-validation.ipynb echo=true >}}

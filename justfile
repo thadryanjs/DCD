@@ -16,10 +16,12 @@ compile-report:
 explore-data:
     uv run jupytext --to notebook --execute 01_explore-data.py
     mv 01_explore-data.ipynb book/
+    touch book/report.qmd
 
 model-cross-validation:
     uv run jupytext --to notebook --execute 02_model-cross-validation.py
     mv 02_model-cross-validation.ipynb book/
+    touch book/report.qmd
 
 preview-report:
     uv run quarto preview book/report.qmd
