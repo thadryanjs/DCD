@@ -5,14 +5,16 @@ process-dataset:
     uv run 00_process-dataset.py
 
 book-process:
+    rm -f book/00_process-dataset.ipynb
+    uv run jupytext --to notebook 00_process-dataset.py
+    uv run jupyter nbconvert --to notebook --execute 00_process-dataset.ipynb --inplace
     mkdir -p book
-    jupytext --to notebook 00_process-dataset.py
     mv 00_process-dataset.ipynb book/
 
 render-report:
     just book-process
-    quarto render book/report.qmd
+    uv run quarto render book/report.qmd
 
 preview-report:
     just book-process
-    quarto preview book/report.qmd
+    uv run quarto preview book/report.qmd

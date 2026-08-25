@@ -10,6 +10,8 @@ dependencies = [
     "scikit-learn>=1.9.0",
     "matplotlib>=3.11.1",
     "seaborn>=0.13.2",
+    "jupytext>=1.19.5",
+    "quarto-cli>=1.10.18",
 ]
 
 [tool.uv]

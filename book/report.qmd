@@ -2,13 +2,15 @@
 title: "Data Processing: Ophthalmology Dataset"
 author: "Research Pipeline"
 date: last-modified
-format:
+format: 
   html:
     toc: true
-    code-fold: true
+    echo: true
+    code-fold: false
     embed-resources: true
   pdf:
     toc: true
+    echo: true
 ---
 
-{{< embed book/00_process-dataset.ipynb >}}
+{{< embed 00_process-dataset.ipynb echo=true >}}
