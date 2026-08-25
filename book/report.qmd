@@ -1,0 +1,14 @@
+---
+title: "Data Processing: Ophthalmology Dataset"
+author: "Research Pipeline"
+date: last-modified
+format:
+  html:
+    toc: true
+    code-fold: true
+    embed-resources: true
+  pdf:
+    toc: true
+---
+
+{{< embed book/00_process-dataset.ipynb >}}

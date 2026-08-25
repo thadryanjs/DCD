@@ -1,0 +1,25 @@
+project:
+  type: default
+  render:
+    - Report.qmd
+
+format:
+  html:
+    download: false
+    embed-resources: true
+    toc: true
+    toc-depth: 3
+    theme: cosmo
+    code-fold: false
+    code-tools: true
+    notebook-links: false
+  typst:
+    toc: true
+    toc-depth: 3
+    papersize: a4
+    margin:
+      x: 1.5cm
+      y: 2cm
+    code-overflow: wrap
+    mainfont: "New Computer Modern"
+    monofont: "Source Code Pro"

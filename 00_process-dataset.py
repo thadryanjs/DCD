@@ -24,10 +24,10 @@ import polars as pl
 from pathlib import Path
 import re
 
-DATA_DIR = Path("/home/thadryan/Vaults/Projects/Work/Primary/DCD/Code/data")
+data_dir = Path("/home/thadryan/Vaults/Projects/Work/Primary/DCD/Code/data")
 
-def load_raw(filename: str) -> pl.DataFrame:
-    return pl.read_excel(DATA_DIR / filename)
+def load_raw(filename):
+    return pl.read_excel(data_dir / filename)
 
 df_pos_raw = load_raw("positive-cases.xlsx")
 df_neg_raw = load_raw("negative-cases.xlsx")
@@ -57,7 +57,7 @@ print(df_neg_raw.columns)
 # Action: Implement `clean_colnames` to normalize to lowercase, no spaces/slashes.
 #
 # %% [code]
-def clean_colnames(df: pl.DataFrame) -> pl.DataFrame:
+def clean_colnames(df):
     """Systematically clean column names for consistency."""
     def _clean(name):
         name = name.strip()
@@ -106,7 +106,7 @@ print(f"Null-filter complete. Shapes: Pos {df_pos.shape}, Neg {df_neg.shape}")
 # We ensure cases are not duplicated, ignoring the 'alias' column if it exists.
 #
 # %% [code]
-def deduplicate_cases(df: pl.DataFrame) -> pl.DataFrame:
+def deduplicate_cases(df):
     if "alias" not in df.columns:
         return df
     subset = [c for c in df.columns if c != "alias"]
@@ -154,7 +154,7 @@ semantic_map = {
     "o2_sat_": "o2_sat" 
 }
 
-def align_semantics(df: pl.DataFrame, mapping: dict) -> pl.DataFrame:
+def align_semantics(df, mapping):
     return df.rename({k: v for k, v in mapping.items() if k in df.columns})
 
 # Proof on toy data
@@ -186,7 +186,7 @@ print(f"Labels assigned. Pos sample: {df_pos.select('label').head(1).item()}, Ne
 # We address schema mismatches by casting differing types to String.
 #
 # %% [code]
-def align_types(df1: pl.DataFrame, df2: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
+def align_types(df1, df2):
     """Cast columns to string if they have mismatched types."""
     s1, s2 = df1.schema, df2.schema
     mismatched = [col for col in s1.keys() if col in s2 and s1[col] != s2[col]]
