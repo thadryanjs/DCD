@@ -16,8 +16,7 @@
 
 # %% [markdown]
 # # Data Processing: Ophthalmology Cases
-# This notebook is a full "proof" of the data pipeline. We begin with raw data,
-# identify structural issues, implement fixes, and verify the results.
+# A step-by-step proof of the data pipeline. We discover issues in the raw data and fix them immediately.
 #
 # %% [code]
 import polars as pl
@@ -32,11 +31,11 @@ def load_raw(filename):
 df_pos_raw = load_raw("positive-cases.xlsx")
 df_neg_raw = load_raw("negative-cases.xlsx")
 
-print(f"Raw Shapes -> Positive: {df_pos_raw.shape}, Negative: {df_neg_raw.shape}")
+print(f"Loaded -> Positive: {df_pos_raw.shape}, Negative: {df_neg_raw.shape}")
 
 # %% [markdown]
-# ## 1. Raw Data Exploration
-# Before cleaning, we inspect the raw structure and a sample of the records.
+# ## 1. First Look: Raw Data
+# Let's see what we're working with.
 #
 # %% [code]
 print("Positive Cases - Head:")
@@ -47,90 +46,58 @@ print("\nPositive Cases - Tail:")
 print(df_pos_raw.tail())
 
 # %% [code]
-print("\n" + "="*40 + "\n")
-
-# %% [code]
-print("Negative Cases - Head:")
+print("\nNegative Cases - Head:")
 print(df_neg_raw.head())
 
 # %% [code]
 print("\nNegative Cases - Tail:")
 print(df_neg_raw.tail())
 
-# %% [code]
-print("\n" + "="*40 + "\n")
-print("Inspecting rows around index 19-23 (Negative Cases):")
-print(df_neg_raw.slice(19, 5))
-
 
 # %% [markdown]
-# ### Longitudinal Data Inspection
-# We inspect the raw structure around the transition point (rows 14-22). Note: polars `read_excel` auto-filtered the orange separator row that exists in the spreadsheet.
+# ## 2. Merged Cell IDs
+# Looking at the negative cases, we see a pattern: `Alias=1` followed by nulls, then `Alias=2`.
+# The Excel file used merged cells for the Alias column - polars reads these as nulls.
 #
 # %% [code]
-print("Rows 14-22 (Negative Cases) - Transition from Person 1 to Person 2:")
+print("Rows 14-22 (Negative Cases) - The pattern: 1, null, null, null, 2:")
 print(df_neg_raw.slice(14, 9))
 
-
-# %% [markdown]
-# ### Data Structure Audit
-# We examine how Alias, Age, and Date/Time relate to each other. This reveals the longitudinal pattern where measurements for the same subject share demographics.
-#
 # %% [code]
+print("\nFirst 20 rows (Alias, Age, Date/Time):")
 pl.Config.set_tbl_rows(100)
 key_cols = [c for c in ["Alias", "Age", "Date/Time"] if c in df_neg_raw.columns]
-print("Negative Cases - First 20 rows (Alias, Age, Date/Time):")
 print(df_neg_raw.select(key_cols).slice(0, 20))
 
 
 # %% [markdown]
-# ### Raw Data Audit: Separator Detection
-# We suspect the presence of "separator" rows—rows that aren't completely empty but don't contain case data (e.g., section headers).
+# ### Fix: Forward-Fill the IDs
+# Each ID propagates down until the next ID appears.
 #
 # %% [code]
-def find_separators(df, name):
-    age_col = [c for c in df.columns if "age" in c.lower()]
-    if not age_col:
-        return None
+def forward_populate_ids(df):
+    """Forward-fill Alias: each ID propagates down until the next ID."""
+    alias_col = [c for c in df.columns if c.lower() == "alias"]
+    if not alias_col:
+        return df
+    return df.with_columns(pl.col(alias_col[0]).forward_fill())
 
-    col = age_col[0]
-    separators = df.filter(
-        (~pl.all_horizontal(pl.all().is_null())) &
-        (pl.col(col).is_null())
-    )
-    print(f"{name} - Found {separators.height} potential separator rows.")
-    if separators.height > 0:
-        print("Sample of separator rows (missing age, but not completely empty):")
-        print(separators.head())
-    return separators
+# Proof on toy data
+demo = pl.DataFrame({"alias": [1, None, None, 2, None], "val": [10, 11, 12, 20, 21]})
+print("Before:\n", demo)
+print("\nAfter:\n", forward_populate_ids(demo))
 
 # %% [code]
-find_separators(df_pos_raw, "Positive Cases")
+df_pos = forward_populate_ids(df_pos_raw)
+df_neg = forward_populate_ids(df_neg_raw)
 
-# %% [code]
-print("\n" + "-"*20)
-find_separators(df_neg_raw, "Negative Cases")
-
-# %% [code]
-def check_sparsity(df, name):
-    row_nulls = df.select([pl.col(c).is_null() for c in df.columns]).sum_horizontal()
-    threshold = int(len(df.columns) * 0.9)
-    holes = df.filter(row_nulls > threshold)
-    print(f"{name} - Found {holes.height} rows with >90% nulls (potential holes).")
-    if holes.height > 0:
-        print(holes.head())
-
-# %% [code]
-check_sparsity(df_pos_raw, "Positive Cases")
-
-# %% [code]
-print("\n" + "-"*20)
-check_sparsity(df_neg_raw, "Negative Cases")
+print("\nPositive Cases (IDs Forward-Filled) - First 20 rows:")
+print(df_pos.select(["Alias", "Age"]).head(20))
 
 
 # %% [markdown]
-# ## 2. Identifying Column Name Issues
-# We inspect the raw columns to determine the cleaning requirements.
+# ## 3. Dirty Column Names
+# Now let's check the column names.
 #
 # %% [code]
 print("Positive Case Raw Columns:")
@@ -141,230 +108,237 @@ print(df_neg_raw.columns)
 
 
 # %% [markdown]
-# ### Observation: Dirty Names
-# Data shows:
-# 1. Spaces ("O2 Sat ")
-# 2. Slashes ("Case/ID")
-# 3. Mixed Case ("Age")
-#
-# Action: Implement `clean_colnames` to normalize to lowercase, no spaces/slashes.
+# ### Fix: Clean Column Names
+# Normalize to lowercase, replace spaces/slashes with underscores.
 #
 # %% [code]
 def clean_colnames(df):
-    """Systematically clean column names for consistency."""
+    """Clean column names: lowercase, no spaces/slashes."""
     def _clean(name):
         name = name.strip()
-        name = name.replace("/", "-")
+        name = name.replace("/", "_")
         name = name.replace(" ", "_")
         name = re.sub(r"[^a-zA-Z0-9_-]", "", name)
         return name.lower()
-
     return df.rename({col: _clean(col) for col in df.columns})
 
 # Proof on toy data
-demo_df = pl.DataFrame({"Case/ID": [1], "O2 Sat ": [98], "Age": [50]})
-print("Toy Before:", demo_df.columns)
-print("Toy After:", clean_colnames(demo_df).columns)
-
+demo = pl.DataFrame({"Case/ID": [1], "O2 Sat ": [98], "Age": [50]})
+print("Before:", demo.columns)
+print("After:", clean_colnames(demo).columns)
 
 # %% [code]
-df_pos = clean_colnames(df_pos_raw)
-df_neg = clean_colnames(df_neg_raw)
+df_pos = clean_colnames(df_pos)
+df_neg = clean_colnames(df_neg)
 
-print("Columns cleaned for both datasets.")
-print("\nPositive Cases (Cleaned Names) Head:")
+print("\nColumns cleaned.")
+print("Positive Cases (Clean Names) Head:")
 print(df_pos.head())
 
 
 # %% [markdown]
-# ## 3. Handling Null-Only Rows
-# We check for rows that are completely empty (common in Excel exports).
+# ## 4. Empty Rows
+# Check for completely empty rows (common in Excel exports).
 #
 # %% [code]
-# Positive Before
 pos_empty = df_pos.filter(pl.all_horizontal(pl.all().is_null())).height
 print(f"Positive empty rows: {pos_empty}")
 
-df_pos = df_pos.filter(~pl.all_horizontal(pl.all().is_null()))
-
-# Negative Before
 neg_empty = df_neg.filter(pl.all_horizontal(pl.all().is_null())).height
 print(f"Negative empty rows: {neg_empty}")
 
+df_pos = df_pos.filter(~pl.all_horizontal(pl.all().is_null()))
 df_neg = df_neg.filter(~pl.all_horizontal(pl.all().is_null()))
 
-print(f"Null-filter complete. Shapes: Pos {df_pos.shape}, Neg {df_neg.shape}")
-print("\nPositive Cases (Null-Filtered) Head:")
-print(df_pos.head())
+print(f"\nFiltered. Shapes: Pos {df_pos.shape}, Neg {df_neg.shape}")
 
 
 # %% [markdown]
-# ## 4. Longitudinal Data Restoration
-# As discovered in the Audit, the dataset uses an Excel merged-cell convention where the Alias is only present on the first row of a subject's records. 
-# We must forward-fill the Alias to correctly associate measurements with their respective subjects.
+# ## 5. Semantic Variations
+# Check for columns that mean the same thing but have different names.
 #
 # %% [code]
-def restore_longitudinal_ids(df):
-    if "alias" not in df.columns:
-        return df
-    
-    # Forward fill the alias column to fill in the merged cell gaps
-    df = df.with_columns(pl.col("alias").forward_fill())
-    return df
+# Check for potential semantic variations (BMI, O2, etc.)
+bmi_cols = [c for c in df_pos.columns if "bmi" in c.lower()]
+o2_cols = [c for c in df_pos.columns if "o2" in c.lower()]
 
-# Proof on toy data
-demo_long = pl.DataFrame({
-    "alias": [1, None, None, 2, None],
-    "val": [10, 11, 12, 20, 21]
-})
-print("Toy Before:\n", demo_long)
-print("\nToy After:\n", restore_longitudinal_ids(demo_long))
+print(f"Potential BMI columns: {bmi_cols}")
+print(f"Potential O2 columns: {o2_cols}")
 
-
-# %% [code]
-# Apply to datasets
-df_pos = restore_longitudinal_ids(df_pos)
-df_neg = restore_longitudinal_ids(df_neg)
-
-print("\nPositive Cases (IDs Restored) Head:")
-print(df_pos.select(["alias", "age"]).head(20))
+# Show first 5 rows of these columns to verify if they're the same thing
+if bmi_cols or o2_cols:
+    cols_to_check = bmi_cols + o2_cols
+    print("\nFirst 5 rows of potential semantic variations:")
+    print(df_pos.select(cols_to_check).head())
 
 
 # %% [markdown]
-# ## 5. Deduplication (Exact Rows Only)
-# We ensure cases are not duplicated. 
-# NOTE: We only remove EXACT duplicates across all columns to preserve longitudinal history.
+# ### Observation: All Columns Are Distinct
+# The potential variations are actually different clinical measurements:
+# - `pco2` = partial pressure of CO2
+# - `po2` = partial pressure of O2  
+# - `o2_sat` = oxygen saturation
+# - `fio2` = fraction of inspired O2
+# - `baseline_vitals_o2_sat` = baseline O2 saturation reading
+# - `date_time_o2_sat__90` = timestamp when O2 sat dropped below 90%
 #
-# %% [code]
-def deduplicate_cases(df):
-    return df.unique()
-
-# Proof on toy data
-demo_dup = pl.DataFrame({"id": [1, 1], "val": [10, 10]})
-print("Toy Before:\n", demo_dup)
-print("\nToy After:\n", deduplicate_cases(demo_dup))
-
-
-# %% [code]
-# Positive
-print(f"Positive before dedup: {df_pos.height}")
-df_pos = deduplicate_cases(df_pos)
-print(f"Positive after dedup: {df_pos.height}")
-
-# Negative
-print(f"Negative before dedup: {df_neg.height}")
-df_neg = deduplicate_cases(df_neg)
-print(f"Negative after dedup: {df_neg.height}")
-
-print("\nPositive Cases (Deduplicated) Head:")
-print(df_pos.head())
-
-
-# %% [markdown]
-# ## 6. Semantic Alignment
-# We identify and merge columns that represent the same feature.
+# No semantic alignment needed.
 #
-# %% [code]
-# Discovery: check for BMI and O2 variants
-bmi_cols = [c for c in df_pos.columns if "bmi" in c]
-o2_cols = [c for c in df_pos.columns if "o2" in c]
-print(f"Found BMI cols: {bmi_cols}")
-print(f"Found O2 cols: {o2_cols}")
-
-
 # %% [markdown]
-# ### Observation: Semantic Mismatch
-# Variations like `bmicalc` and `o2sat` exist.
-# Action: Implement `align_semantics` using a mapping dictionary.
-#
-# %% [code]
-semantic_map = {
-    "bmicalc": "bmi",
-    "o2sat": "o2_sat",
-    "o2_sat_": "o2_sat"
-}
-
-def align_semantics(df, mapping):
-    return df.rename({k: v for k, v in mapping.items() if k in df.columns})
-
-# Proof on toy data
-demo_sem = pl.DataFrame({"bmicalc": [25], "o2sat": [95]})
-print("Toy Before:", demo_sem.columns)
-print("Toy After:", align_semantics(demo_sem, semantic_map).columns)
-
-
-# %% [code]
-df_pos = align_semantics(df_pos, semantic_map)
-df_neg = align_semantics(df_neg, semantic_map)
-
-print("Semantic alignment complete.")
-print("\nPositive Cases (Aligned) Head:")
-print(df_pos.head())
-
-
-# %% [markdown]
-# ## 7. Labeling
-# Assign binary labels for class identification.
+# ## 6. Labeling
+# Assign binary labels.
 #
 # %% [code]
 df_pos = df_pos.with_columns(pl.lit(1).alias("label"))
 df_neg = df_neg.with_columns(pl.lit(0).alias("label"))
 
-print(f"Labels assigned. Pos sample: {df_pos.select('label').head(1).item()}, Neg sample: {df_neg.select('label').head(1).item()}")
-print("\nPositive Cases (Labeled) Head:")
-print(df_pos.head())
+print(f"Labels: Pos={df_pos.select('label').head(1).item()}, Neg={df_neg.select('label').head(1).item()}")
 
 
 # %% [markdown]
-# ## 8. Type Alignment & Final Combination
-# We address schema mismatches by casting differing types to String.
+# ## 7. Column Check: Type Mismatches
+# Find columns that exist in both datasets but have different types.
 #
 # %% [code]
-def align_types(df1, df2):
-    """Cast columns to string if they have mismatched types."""
-    s1, s2 = df1.schema, df2.schema
-    mismatched = [col for col in s1.keys() if col in s2 and s1[col] != s2[col]]
+# First, align column names that mean the same thing
+semantic_map = {
+    "bmicalc": "bmi",
+    "o2sat": "o2_sat"
+}
 
-    if mismatched:
-        print(f"Mismatched types found: {mismatched}. Casting to string.")
-        df1 = df1.with_columns([pl.col(col).cast(pl.String) for col in mismatched])
-        df2 = df2.with_columns([pl.col(col).cast(pl.String) for col in mismatched])
+def align_semantics(df, mapping):
+    return df.rename({k: v for k, v in mapping.items() if k in df.columns})
 
-    return df1, df2
+df_pos = align_semantics(df_pos, semantic_map)
+df_neg = align_semantics(df_neg, semantic_map)
 
-# Proof on toy data
-d1, d2 = pl.DataFrame({"a": [1]}), pl.DataFrame({"a": ["1"]})
-print("Toy types before:", d1.schema["a"], d2.schema["a"])
-d1_a, d2_a = align_types(d1, d2)
-print("Toy types after:", d1_a.schema["a"], d2_a.schema["a"])
+print("Semantic alignment complete (bmicalc->bmi, o2sat->o2_sat).")
 
 
 # %% [code]
-df_pos, df_neg = align_types(df_pos, df_neg)
+# Now check for type mismatches
+common_cols = set(df_pos.columns) & set(df_neg.columns)
+mismatched = [(col, df_pos.schema[col], df_neg.schema[col]) 
+              for col in sorted(common_cols) if df_pos.schema[col] != df_neg.schema[col]]
 
-try:
-    df_all = pl.concat([df_pos, df_neg])
-    print("Concatenation successful!")
-except Exception as e:
-    print(f"Concat failed: {e}. Falling back to diagonal.")
-    df_all = pl.concat([df_pos, df_neg], how="diagonal")
+if not mismatched:
+    print("No type mismatches found.")
+else:
+    print(f"Found {len(mismatched)} type mismatches:\n")
+    for i, (col, dtype1, dtype2) in enumerate(mismatched, 1):
+        pos_sample = df_pos[col].head(3).to_list()
+        neg_sample = df_neg[col].head(3).to_list()
+        print(f"{i}. {col}")
+        print(f"   Positive: {dtype1} -> {pos_sample}")
+        print(f"   Negative: {dtype2} -> {neg_sample}")
+        print()
 
+
+# %% [markdown]
+# ### Handling Mismatches
+# Each mismatched column is handled bespoke based on its semantic meaning.
+#
+
+# %% [markdown]
+# #### Datetime Columns (String → Datetime[ms])
+# These columns contain timestamps stored as strings in the negative dataset.
+# Convert using `str.to_datetime()` with millisecond precision to match positive dataset.
+#
+# %% [code]
+# date_time_of_declaration_tod - Time of declaration of death
+print("Converting date_time_of_declaration_tod: String → Datetime[ms]")
+df_neg = df_neg.with_columns(pl.col("date_time_of_declaration_tod").str.to_datetime(time_unit="ms"))
+
+# %% [code]
+# date_time_of_pea_asystole - Time of PEA/asystole event
+print("Converting date_time_of_pea_asystole: String → Datetime[ms]")
+df_neg = df_neg.with_columns(pl.col("date_time_of_pea_asystole").str.to_datetime(time_unit="ms"))
+
+# %% [code]
+# date_time_of_perfusion - Time of perfusion start
+print("Converting date_time_of_perfusion: String → Datetime[ms]")
+df_neg = df_neg.with_columns(pl.col("date_time_of_perfusion").str.to_datetime(time_unit="ms"))
+
+# %% [code]
+# date_time_sbp__90 - Time when SBP dropped below 90
+print("Converting date_time_sbp__90: String → Datetime[ms]")
+df_neg = df_neg.with_columns(pl.col("date_time_sbp__90").str.to_datetime(time_unit="ms"))
+
+
+# %% [markdown]
+# #### Integer Columns (String → Int64)
+# These columns contain numeric duration/time values stored as strings in negative dataset.
+# Cast to Int64 to match positive dataset. Null values in negative dataset are preserved.
+#
+# %% [code]
+# dcd_nrp_total_pump_time - Total pump time during DCD/NRP (minutes)
+print("Converting dcd_nrp_total_pump_time: String → Int64")
+df_neg = df_neg.with_columns(pl.col("dcd_nrp_total_pump_time").cast(pl.Int64))
+
+# %% [code]
+# extubation_to_perfusion_warm_ischemic_time - Time from extubation to perfusion (minutes)
+print("Converting extubation_to_perfusion_warm_ischemic_time: String → Int64")
+df_neg = df_neg.with_columns(pl.col("extubation_to_perfusion_warm_ischemic_time").cast(pl.Int64))
+
+# %% [code]
+# sbp90_to_declaration - Time from SBP<90 to declaration (minutes)
+print("Converting sbp90_to_declaration: String → Int64")
+df_neg = df_neg.with_columns(pl.col("sbp90_to_declaration").cast(pl.Int64))
+
+# %% [code]
+# tod_to_perfusion - Time from declaration of death to perfusion (minutes)
+print("Converting tod_to_perfusion: String → Int64")
+df_neg = df_neg.with_columns(pl.col("tod_to_perfusion").cast(pl.Int64))
+
+# %% [code]
+# warm_ischemic_time_agonal_phase_to_cooling - Warm ischemic time (minutes)
+print("Converting warm_ischemic_time_agonal_phase_to_cooling: String → Int64")
+df_neg = df_neg.with_columns(pl.col("warm_ischemic_time_agonal_phase_to_cooling").cast(pl.Int64))
+
+
+# %% [code]
+print("\nType alignment complete.")
+
+
+# %% [code]
+# Verify alignment
+print("Checking for remaining mismatches...")
+mismatched_after = [(col, df_pos.schema[col], df_neg.schema[col]) 
+                    for col in common_cols if df_pos.schema[col] != df_neg.schema[col]]
+
+if mismatched_after:
+    print(f"Still have {len(mismatched_after)} mismatches:")
+    for col, t1, t2 in mismatched_after:
+        print(f"  {col}: Pos={t1}, Neg={t2}")
+else:
+    print("All types aligned!")
+
+
+# %% [markdown]
+# ## Combine Datasets
+#
+# %% [code]
+print("Attempting concat...")
+df_all = pl.concat([df_pos, df_neg])
+print(f"Concatenation successful!")
 print(f"Final Dataset Shape: {df_all.shape}")
-print("\nFinal Combined Dataset Head:")
-print(df_all.head())
-print("\nFinal Combined Dataset Tail:")
-print(df_all.tail())
 
 
 # %% [markdown]
-# ## Final Verification
-# Verify the distribution and the alignment of key features.
+# ## Save Processed Dataset
+# Save to parquet for downstream analysis.
 #
 # %% [code]
-print("Class Distribution:")
-print(df_all.group_by("label").agg(pl.len().alias("count")))
+processed_dir = Path("data/processed")
+processed_dir.mkdir(exist_ok=True)
 
-features = ["label", "bmi", "o2_sat", "age"]
-present_features = [f for f in features if f in df_all.columns]
-print("\nFinal Aligned Sample:")
-print(df_all.select(present_features).head(10))
+output_path = processed_dir / "combined-dataset.parquet"
+df_all.write_parquet(output_path)
+print(f"Saved to: {output_path}")
+print(f"Shape: {df_all.shape}")
+print(f"Columns: {df_all.columns}")
+
+
+# %% [markdown]
+# ## End of Data Processing
+# Final verification (class distribution, feature summary) moved to `01_analysis.py`.
