@@ -1,28 +1,25 @@
-# Python-generated files
+# Ignore everything
+*
 
+# Allow root config and spec files
+!.gitignore
+!justfile
+!spec.md
+!pyproject.toml
+!uv.lock
+
+# Allow all directories to enable recursive whitelisting
+!*/
+
+# Allow specific extensions
+!*.py
+!*.yaml
+!*.yml
+!*.qmd
+!*.md
+
+# Block noise directories explicitly
+.quarto/
+.ipynb_checkpoints/
 __pycache__/
-*.py[oc]
-build/
-dist/
-wheels/
-*.egg-info
-
-# Python-generated files
-__pycache__/
-*.py[oc]
-build/
-dist/
-wheels/
-*.egg-info
-
-# Virtual environments
-.venv
-.env
-
-# Quarto / Notebook outputs
-book/*.html
-book/*.pdf
-book/*.ipynb
-
-# Outputs
-data/
+.venv/
