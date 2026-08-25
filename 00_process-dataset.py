@@ -246,54 +246,72 @@ else:
 #
 # %% [code]
 # date_time_of_declaration_tod - Time of declaration of death
-print("Converting date_time_of_declaration_tod: String → Datetime[ms]")
+# All null in negative dataset
+print(f"BEFORE (String): {df_neg['date_time_of_declaration_tod'].head(3).to_list()} (all null)")
 df_neg = df_neg.with_columns(pl.col("date_time_of_declaration_tod").str.to_datetime(time_unit="ms"))
+print(f"AFTER (Datetime): {df_neg['date_time_of_declaration_tod'].head(3).to_list()} (all null)")
 
 # %% [code]
 # date_time_of_pea_asystole - Time of PEA/asystole event
-print("Converting date_time_of_pea_asystole: String → Datetime[ms]")
+# All null in negative dataset
+print(f"BEFORE (String): {df_neg['date_time_of_pea_asystole'].head(3).to_list()} (all null)")
 df_neg = df_neg.with_columns(pl.col("date_time_of_pea_asystole").str.to_datetime(time_unit="ms"))
+print(f"AFTER (Datetime): {df_neg['date_time_of_pea_asystole'].head(3).to_list()} (all null)")
 
 # %% [code]
 # date_time_of_perfusion - Time of perfusion start
-print("Converting date_time_of_perfusion: String → Datetime[ms]")
+# All null in negative dataset
+print(f"BEFORE (String): {df_neg['date_time_of_perfusion'].head(3).to_list()} (all null)")
 df_neg = df_neg.with_columns(pl.col("date_time_of_perfusion").str.to_datetime(time_unit="ms"))
+print(f"AFTER (Datetime): {df_neg['date_time_of_perfusion'].head(3).to_list()} (all null)")
 
 # %% [code]
 # date_time_sbp__90 - Time when SBP dropped below 90
-print("Converting date_time_sbp__90: String → Datetime[ms]")
+# Has actual data in negative dataset
+print(f"BEFORE (String): {df_neg['date_time_sbp__90'].drop_nulls().head(3).to_list()}")
 df_neg = df_neg.with_columns(pl.col("date_time_sbp__90").str.to_datetime(time_unit="ms"))
+print(f"AFTER (Datetime): {df_neg['date_time_sbp__90'].drop_nulls().head(3).to_list()}")
 
 
 # %% [markdown]
 # #### Integer Columns (String → Int64)
 # These columns contain numeric duration/time values stored as strings in negative dataset.
-# Cast to Int64 to match positive dataset. Null values in negative dataset are preserved.
+# Cast to Int64 to match positive dataset. **Note: All values are null in negative dataset**.
 #
 # %% [code]
 # dcd_nrp_total_pump_time - Total pump time during DCD/NRP (minutes)
-print("Converting dcd_nrp_total_pump_time: String → Int64")
+# All null in negative dataset (NRP only for positive cases)
+print(f"BEFORE (String): {df_neg['dcd_nrp_total_pump_time'].head(3).to_list()} (all null)")
 df_neg = df_neg.with_columns(pl.col("dcd_nrp_total_pump_time").cast(pl.Int64))
+print(f"AFTER (Int64): {df_neg['dcd_nrp_total_pump_time'].head(3).to_list()} (all null)")
 
 # %% [code]
 # extubation_to_perfusion_warm_ischemic_time - Time from extubation to perfusion (minutes)
-print("Converting extubation_to_perfusion_warm_ischemic_time: String → Int64")
+# All null in negative dataset
+print(f"BEFORE (String): {df_neg['extubation_to_perfusion_warm_ischemic_time'].head(3).to_list()} (all null)")
 df_neg = df_neg.with_columns(pl.col("extubation_to_perfusion_warm_ischemic_time").cast(pl.Int64))
+print(f"AFTER (Int64): {df_neg['extubation_to_perfusion_warm_ischemic_time'].head(3).to_list()} (all null)")
 
 # %% [code]
 # sbp90_to_declaration - Time from SBP<90 to declaration (minutes)
-print("Converting sbp90_to_declaration: String → Int64")
+# All null in negative dataset
+print(f"BEFORE (String): {df_neg['sbp90_to_declaration'].head(3).to_list()} (all null)")
 df_neg = df_neg.with_columns(pl.col("sbp90_to_declaration").cast(pl.Int64))
+print(f"AFTER (Int64): {df_neg['sbp90_to_declaration'].head(3).to_list()} (all null)")
 
 # %% [code]
 # tod_to_perfusion - Time from declaration of death to perfusion (minutes)
-print("Converting tod_to_perfusion: String → Int64")
+# All null in negative dataset
+print(f"BEFORE (String): {df_neg['tod_to_perfusion'].head(3).to_list()} (all null)")
 df_neg = df_neg.with_columns(pl.col("tod_to_perfusion").cast(pl.Int64))
+print(f"AFTER (Int64): {df_neg['tod_to_perfusion'].head(3).to_list()} (all null)")
 
 # %% [code]
 # warm_ischemic_time_agonal_phase_to_cooling - Warm ischemic time (minutes)
-print("Converting warm_ischemic_time_agonal_phase_to_cooling: String → Int64")
+# All null in negative dataset
+print(f"BEFORE (String): {df_neg['warm_ischemic_time_agonal_phase_to_cooling'].head(3).to_list()} (all null)")
 df_neg = df_neg.with_columns(pl.col("warm_ischemic_time_agonal_phase_to_cooling").cast(pl.Int64))
+print(f"AFTER (Int64): {df_neg['warm_ischemic_time_agonal_phase_to_cooling'].head(3).to_list()} (all null)")
 
 
 # %% [code]
