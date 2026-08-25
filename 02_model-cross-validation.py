@@ -20,7 +20,11 @@
 # %% [code]
 import polars as pl
 from pathlib import Path
-from sklearn.model_selection import cross_val_score, cross_validate, train_test_split, KFold
+
+# Third-party
+from sklearn.model_selection import cross_val_score, cross_validate, train_test_split, StratifiedKFold
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import make_scorer, precision_score, recall_score, f1_score
@@ -38,8 +42,24 @@ print(f"Loaded: {df.shape}")
 # %% [markdown]
 # ## 2. Train/Test Split
 #
+# %% [markdown]
+# ### Data Leakage Check
+# Verify no features directly encode the target.
+#
 # %% [code]
-# Get numeric columns (exclude label)
+# Suspicious column patterns that may leak labels
+leak_keywords = ["label", "outcome", "result", "diagnosis", "positive", "negative", "case"]
+
+potential_leaks = [c for c in df.columns if any(kw in c.lower() for kw in leak_keywords)]
+
+if potential_leaks:
+    print(f"WARNING: Potential leakage columns found: {potential_leaks}")
+    print("These should be removed before modeling.")
+else:
+    print("No obvious leakage columns detected.")
+
+# %% [code]
+# Get numeric columns (exclude label and any leakage columns)
 numeric_cols = [c for c in df.columns if df.schema[c].is_numeric() and c != "label"]
 print(f"Features: {len(numeric_cols)}")
 
@@ -57,23 +77,31 @@ X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_
 print(f"Train: {X_train.shape}")
 print(f"Test: {X_test.shape}")
 
+# %% [code]
+# Verify stratification works
+pos_count = y_train.sum()
+print(f"Positive samples in train: {pos_count}")
+if pos_count < 5:
+    raise ValueError(f"Too few positive samples ({pos_count}) for 5-fold stratified CV")
+
 # %% [markdown]
 # ## 3. Define Models
 #
 # %% [code]
 models = {
-    "Logistic Regression": LogisticRegression(max_iter=1000),
-    "Random Forest": RandomForestClassifier(n_estimators=100, random_state=42),
-    "XGBoost": XGBClassifier(n_estimators=100, random_state=42, verbosity=0),
+    "Logistic Regression": Pipeline([
+        ("scaler", StandardScaler()),
+        ("clf", LogisticRegression(max_iter=1000, class_weight="balanced", random_state=42))
+    ]),
+    "Random Forest": RandomForestClassifier(n_estimators=100, random_state=42, class_weight="balanced"),
+    "XGBoost": XGBClassifier(n_estimators=100, max_depth=3, random_state=42, verbosity=0, use_label_encoder=False, eval_metric="logloss"),
 }
 
 # %% [markdown]
-# ## 4. 5-Fold Cross-Validation
+# ## 4. 5-Fold Stratified Cross-Validation
 #
 # %% [code]
-from sklearn.model_selection import KFold
-
-kf = KFold(n_splits=5, shuffle=True, random_state=42)
+kf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
 
 for name, model in models.items():
     print(f"\n{'='*50}")
@@ -89,9 +117,6 @@ for name, model in models.items():
 # ## 5. Detailed Metrics
 #
 # %% [code]
-from sklearn.model_selection import cross_validate
-from sklearn.metrics import make_scorer, precision_score, recall_score, f1_score
-
 scoring = {
     "accuracy": "accuracy",
     "precision": make_scorer(precision_score),
