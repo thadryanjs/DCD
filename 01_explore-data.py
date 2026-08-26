@@ -28,8 +28,8 @@ import seaborn as sns
 import numpy as np
 from matplotlib.colors import ListedColormap
 
-data_dir = Path("/home/thadryan/Vaults/Projects/Work/Primary/DCD/Code/data")
-processed_dir = Path("/home/thadryan/Vaults/Projects/Work/Primary/DCD/Code/data/processed")
+data_dir = Path("data")
+processed_dir = Path("data/processed")
 
 # %% [markdown]
 # ## 1. Load Processed Dataset
@@ -83,9 +83,9 @@ for col in numeric_cols:
     mean_neg = df.filter(pl.col("progression_to_death") == 0).select(pl.col(col).mean()).item()
     # Handle null means (all null values in a class)
     if mean_pos is None:
-        mean_pos = 0.0
+        mean_pos = np.nan
     if mean_neg is None:
-        mean_neg = 0.0
+        mean_neg = np.nan
     diff = abs(mean_pos - mean_neg)
     diffs.append((col, mean_pos, mean_neg, diff))
 
@@ -146,7 +146,7 @@ missing_mask = df.select([pl.col(c).is_null().cast(pl.Int8).alias(f"{c}_miss") f
 # Calculate correlation matrix of missingness
 if len(numeric_cols) > 1:
     miss_cols = [f"{c}_miss" for c in numeric_cols]
-    corr_matrix = missing_mask.select(miss_cols).describe()
+    corr_matrix = missing_mask.select(miss_cols).corr()
     print(corr_matrix)
 
 # %% [markdown]
@@ -159,12 +159,16 @@ plots_dir.mkdir(parents=True, exist_ok=True)
 
 # Create binary missingness matrix in original spreadsheet order (rows x features)
 miss_cols = [f"{c}_miss" for c in numeric_cols]
-missing_matrix = missing_mask.select(miss_cols).to_numpy()
+subset_mask = missing_mask.select(miss_cols)
 
-# OOM warning for large datasets
-if missing_matrix.size > 10_000_000:
-    mem_gb = missing_matrix.nbytes / (1024**3)
-    print(f"WARNING: Missingness matrix is {mem_gb:.2f} GB. Consider downsampling.")
+# OOM prevention: Downsample if matrix is too large (> 10M elements)
+if subset_mask.height * len(miss_cols) > 10_000_000:
+    sample_size = 10_000_000 // len(miss_cols)
+    print(f"WARNING: Dataset too large for heatmap ({subset_mask.height * len(miss_cols)} elements).")
+    print(f"Downsampling to {sample_size} rows for visualization.")
+    subset_mask = subset_mask.sample(n=sample_size)
+
+missing_matrix = subset_mask.to_numpy()
 
 # Use a strict 2-color map to prevent grey interpolation
 # 0: White (Present), 1: Black (Missing)
@@ -240,10 +244,8 @@ for i, col in enumerate(high_comp_cols, 1):
 # Drop raw 'alias' as it's redundant with 'alias_filled'
 analytic_cols = [c for c in high_comp_cols if c != "alias"]
 df_analytic = df.select(analytic_cols + ["progression_to_death"])
-output_analytic = processed_dir / "analytic-dataset.parquet"
-df_analytic.write_parquet(output_analytic)
-print(f"\nAnalytic dataset saved to: {output_analytic}")
-print(f"Shape: {df_analytic.shape}")
+# Removed early save to analytic-dataset.parquet to prevent leakage in R analysis
+print(f"\nInitial missingness filter applied. Shape: {df_analytic.shape}")
 
 # %% [code]
 missing_per_row = missing_mask.select([pl.sum_horizontal([pl.col(f"{c}_miss") for c in numeric_cols]).alias("missing_count")])
@@ -446,16 +448,16 @@ else:
 selected_features = clean_features
 
 # %% [code]
-# Save final model-ready dataset
+# Save final analytic dataset
 # We include 'alias_filled' for grouping during cross-validation to prevent patient-level leakage.
 df_model = df.select(selected_features + ["alias_filled", "progression_to_death"])
-output_model = processed_dir / "model-ready-dataset.parquet"
-df_model.write_parquet(output_model)
+output_analytic = processed_dir / "analytic-dataset.parquet"
+df_model.write_parquet(output_analytic)
 
 print(f"\\n{'='*60}")
 print(f"FINAL FEATURE SET: {len(selected_features)} features")
 print(f"{'='*60}")
-print(f"Model-ready dataset saved to: {output_model}")
+print(f"Analytic dataset saved to: {output_analytic}")
 print(f"Shape: {df_model.shape}")
 for i, feat in enumerate(selected_features, 1):
     print(f"  {i:2d}. {feat}")

@@ -97,13 +97,17 @@ run_glmm <- function(feature, data, label, id) {
     model <- glmer(formula, data = temp, family = binomial,
                    control = glmerControl(optimizer = "bobyqa"))
 
+    # Check convergence
+    if (model@optinfo$conv$convergence != 0) return(NULL)
+    if (is.singular(model)) return(NULL)
+
     tidy_mod <- tidy(model, effects = "fixed", conf.int = TRUE) %>%
       filter(term == feature) %>%
       mutate(feature = feature,
              test = "GLMM (Binomial)")
 
     list(
-      stats = tidy_mod,
+      stats = tidy_mod %>% mutate(n_obs = nrow(temp)),
       means = temp %>%
         group_by(!!sym(label)) %>%
         summarise(across(all_of(feature), ~mean(.x, na.rm = TRUE)), .groups = "drop") %>%
@@ -126,7 +130,8 @@ results <- map(numeric_features, ~run_glmm(.x, df, config$label, config$id)) %>%
   mutate(mean_positive = `mean_1`,
          mean_negative = `mean_0`,
          diff = mean_positive - mean_negative) %>%
-  select(feature, mean_positive, mean_negative, diff, p_value, estimate, z_value, ci_low, ci_high, test) %>%
+  mutate(p_adj = p.adjust(p_value, method = "fdr")) %>%
+  select(feature, n_obs, mean_positive, mean_negative, diff, p_value, p_adj, estimate, z_value, ci_low, ci_high, test) %>%
   arrange(p_value)
 
 print(
@@ -159,10 +164,10 @@ plot_results <- results %>%
 ggplot(plot_results, aes(x = OR, y = feature)) +
   geom_vline(xintercept = 1, color = "red", linetype = "dashed") +
   geom_errorbarh(aes(xmin = lower, xmax = upper), height = 0.2) +
-  geom_point(aes(color = p_value < 0.05), size = 2) +
+  geom_point(aes(color = p_adj < 0.05), size = 2) +
   scale_x_log10() +
   scale_color_manual(values = c("grey70", "firebrick"), 
-                     labels = c("p >= 0.05", "p < 0.05"), 
+                     labels = c("p_adj >= 0.05", "p_adj < 0.05"), 
                      name = "Significance") +
   labs(title = "Mixed Effects Model: Odds Ratios (95% CI)",
        subtitle = "Patient-level random intercepts accounted for",
