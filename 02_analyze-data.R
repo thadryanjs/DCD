@@ -144,7 +144,42 @@ print(
 )
 
 # %% [markdown]
-# ## Correlation Heatmap (Patient Level)
+# ## 6. Mixed Effects Forest Plot
+# Visualize Odds Ratios and Confidence Intervals for the GLMM results.
+#
+# %% [code]
+# Prepare data for plotting: filter for significance or top features
+plot_results <- results %>%
+  mutate(OR = exp(estimate),
+         lower = exp(ci_low),
+         upper = exp(ci_high)) %>%
+  arrange(OR) %>%
+  mutate(feature = factor(feature, levels = feature))
+
+ggplot(plot_results, aes(x = OR, y = feature)) +
+  geom_vline(xintercept = 1, color = "red", linetype = "dashed") +
+  geom_errorbarh(aes(xmin = lower, xmax = upper), height = 0.2) +
+  geom_point(aes(color = p_value < 0.05), size = 2) +
+  scale_x_log10() +
+  scale_color_manual(values = c("grey70", "firebrick"), 
+                     labels = c("p >= 0.05", "p < 0.05"), 
+                     name = "Significance") +
+  labs(title = "Mixed Effects Model: Odds Ratios (95% CI)",
+       subtitle = "Patient-level random intercepts accounted for",
+       x = "Odds Ratio (Log Scale)",
+       y = "Clinical Feature") +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size = 8))
+
+ggsave(file.path(paths$output, "glmm_forest_plot_r.png"), 
+       width = 10, height = 12, dpi = 300)
+
+print(
+    sprintf("✓ GLMM Forest Plot saved: %s", file.path(paths$output, "glmm_forest_plot_r.png"))
+)
+
+# %% [markdown]
+# ## 7. Correlation Heatmap (Patient Level)
 #
 # %% [code]
 corr_mat <- df_patient %>%

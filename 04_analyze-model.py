@@ -142,7 +142,7 @@ else:
 
 
 # %% [markdown]
-# ## 4. Visualization & Directionality
+# ## 5. Visualization & Directionality
 
 # %% [code]
 plt.figure(figsize=(12, 10))
@@ -151,6 +151,57 @@ plt.title("SHAP Summary: Feature Impact on Class 1 (Positive Outcome)")
 plt.tight_layout()
 plt.savefig(plots_dir / "rf_shap_summary.png")
 plt.show()
+
+
+# %% [markdown]
+# ## 6. Mixed Effects Forest Plot
+# We leverage the results from the Generalized Linear Mixed Models (GLMM) conducted in the R analysis.
+# This accounts for repeated observations per patient to provide unbiased Odds Ratios.
+
+# %% [code]
+# Load GLMM results from R analysis
+glmm_results_path = data_dir / "feature_analysis.csv"
+if glmm_results_path.exists():
+    glmm_df = pd.read_csv(glmm_results_path)
+    
+    # Calculate Odds Ratios and CIs from coefficients
+    glmm_df['OR'] = np.exp(glmm_df['estimate'])
+    glmm_df['lower_CI'] = np.exp(glmm_df['ci_low'])
+    glmm_df['upper_CI'] = np.exp(glmm_df['ci_high'])
+    
+    plot_df = glmm_df.sort_values('OR')
+
+    plt.figure(figsize=(10, 12))
+    plt.axvline(x=1, color='red', linestyle='--', alpha=0.7)
+    
+    # Color by p-value
+    colors = ['#d62728' if p < 0.05 else '#7f7f7f' for p in plot_df['p_value']]
+
+    plt.errorbar(
+        x=plot_df['OR'], 
+        y=plot_df['feature'], 
+        xerr=[plot_df['OR'] - plot_df['lower_CI'], plot_df['upper_CI'] - plot_df['OR']],
+        fmt='o', 
+        color=colors, 
+        markersize=6, 
+        capsize=3,
+        markeredgecolor='black'
+    )
+
+    plt.xscale('log')
+    plt.title("Mixed Effects Model: Odds Ratios (95% CI)\nRed = p < 0.05", fontsize=14)
+    plt.xlabel("Odds Ratio (Log Scale)", fontsize=12)
+    plt.ylabel("Features", fontsize=12)
+    plt.grid(True, which='both', axis='x', linestyle='--', alpha=0.5)
+    plt.tight_layout()
+    plt.savefig(plots_dir / "glmm_forest_plot.png")
+    plt.show()
+    
+    print(f"GLMM Forest plot saved to {plots_dir / 'glmm_forest_plot.png'}")
+    print("\nTop Mixed Effects Odds Ratios:")
+    print(plot_df[['feature', 'OR', 'p_value']].head(10).to_string(index=False))
+else:
+    print("GLMM results not found. Please run 02_analyze-data.R first.")
 
 
 # %% [code]

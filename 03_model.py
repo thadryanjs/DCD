@@ -48,6 +48,7 @@ from sklearn.metrics import make_scorer, precision_score, recall_score, f1_score
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder
 from xgboost import XGBClassifier
+import statsmodels.api as sm
 
 data_dir = Path("/home/thadryan/Vaults/Projects/Work/Primary/DCD/Code/data/processed")
 plots_dir = Path("output")
@@ -336,4 +337,4 @@ plt.grid(axis='y', linestyle='--', alpha=0.7)
 plt.tight_layout()
 plt.savefig(plots_dir / "cv_accuracy_boxplot.png")
 plt.show()
-print(f"Boxplot saved to {plots_dir / 'cv_accuracy_boxplot.png}")
+print(f"Boxplot saved to {plots_dir / 'cv_accuracy_boxplot.png'}")
