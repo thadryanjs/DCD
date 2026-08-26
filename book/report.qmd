@@ -1,28 +1,14 @@
----
-title: "DCD Analysis Pipeline"
-author: "Research Pipeline"
-date: last-modified
-execute:
-  freeze: auto
-format:
-  html:
-    toc: true
-    echo: true
-    code-fold: false
-    embed-resources: true
-    code-tools: false
-    notebook-links: false
-  pdf:
-    toc: true
-    echo: true
----
-
+# Process Data
 {{< embed 00_process-data.ipynb echo=true >}}
 
+# Explore Data
 {{< embed 01_explore-data.ipynb echo=true >}}
 
+# Analyze Data
 {{< embed 02_analyze-data.ipynb echo=true >}}
 
+# Model
 {{< embed 03_model.ipynb echo=true >}}
 
+# Analyze Model
 {{< embed 04_analyze-model.ipynb echo=true >}}

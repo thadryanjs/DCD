@@ -40,7 +40,7 @@ print(
 )
 
 # %% [markdown]
-# ## 1. First Look: Raw Data
+# # First Look: Raw Data
 # Let's see what we're working with.
 #
 # %% [code]
@@ -61,7 +61,7 @@ print(df_neg_raw.tail())
 
 
 # %% [markdown]
-# ## 2. Merged Cell IDs
+# # Merged Cell IDs
 # Looking at the negative cases, we see a pattern: `Alias=1` followed by nulls, then `Alias=2`.
 # The Excel file used merged cells for the Alias column - polars reads these as nulls.
 #
@@ -110,7 +110,7 @@ print(df_pos.select(["alias_filled", "observation", "Age"]).head(20))
 
 
 # %% [markdown]
-# ## 3. Dirty Column Names
+# # Dirty Column Names
 # Now let's check the column names.
 #
 # %% [code]
@@ -153,7 +153,7 @@ print(df_pos.head())
 
 
 # %% [markdown]
-# ## 4. Empty Rows
+# # Empty Rows
 # Check for completely empty rows (common in Excel exports).
 #
 # %% [code]
@@ -178,7 +178,7 @@ print(
 
 
 # %% [markdown]
-# ## 5. Semantic Variations
+# # Semantic Variations
 # Check for columns that mean the same thing but have different names.
 #
 # %% [code]
@@ -210,7 +210,7 @@ if bmi_cols or o2_cols:
 # No semantic alignment needed.
 #
 # %% [markdown]
-# ## 6. Labeling
+# # Labeling
 # Assign binary labels: 1 = progression to death (positive outcome).
 #
 # %% [code]
@@ -225,7 +225,7 @@ print(
 
 
 # %% [markdown]
-# ## 7. Column Check: Type Mismatches
+# # Column Check: Type Mismatches
 # Find columns that exist in both datasets but have different types.
 #
 # %% [code]
@@ -273,31 +273,53 @@ else:
 # Convert using `str.to_datetime()` with millisecond precision to match positive dataset.
 #
 # %% [code]
+def safe_cast(df, col_name, target_type, cast_fn=None):
+    """Safely cast a column to target_type with validation."""
+    if col_name not in df.columns:
+        print(f"Warning: Column {col_name} not found. Skipping cast.")
+        return df
+    
+    try:
+        if cast_fn:
+            df = df.with_columns(cast_fn(pl.col(col_name)))
+        else:
+            df = df.with_columns(pl.col(col_name).cast(target_type))
+        print(f"✓ Cast {col_name} to {target_type}")
+    except Exception as e:
+        print(f"Error casting {col_name} to {target_type}: {e}")
+    
+    return df
+
+# %% [code]
 # date_time_of_declaration_tod - Time of declaration of death
 # All null in negative dataset
 print(f"BEFORE (String): {df_neg['date_time_of_declaration_tod'].head(3).to_list()} (all null)")
-df_neg = df_neg.with_columns(pl.col("date_time_of_declaration_tod").str.to_datetime(time_unit="ms"))
+df_neg = safe_cast(df_neg, "date_time_of_declaration_tod", pl.Datetime, 
+                  cast_fn=lambda c: c.str.to_datetime(time_unit="ms"))
 print(f"AFTER (Datetime): {df_neg['date_time_of_declaration_tod'].head(3).to_list()} (all null)")
 
 # %% [code]
 # date_time_of_pea_asystole - Time of PEA/asystole event
 # All null in negative dataset
 print(f"BEFORE (String): {df_neg['date_time_of_pea_asystole'].head(3).to_list()} (all null)")
-df_neg = df_neg.with_columns(pl.col("date_time_of_pea_asystole").str.to_datetime(time_unit="ms"))
+df_neg = safe_cast(df_neg, "date_time_of_pea_asystole", pl.Datetime, 
+                  cast_fn=lambda c: c.str.to_datetime(time_unit="ms"))
 print(f"AFTER (Datetime): {df_neg['date_time_of_pea_asystole'].head(3).to_list()} (all null)")
 
 # %% [code]
 # date_time_of_perfusion - Time of perfusion start
 # All null in negative dataset
 print(f"BEFORE (String): {df_neg['date_time_of_perfusion'].head(3).to_list()} (all null)")
-df_neg = df_neg.with_columns(pl.col("date_time_of_perfusion").str.to_datetime(time_unit="ms"))
+df_neg = safe_cast(df_neg, "date_time_of_perfusion", pl.Datetime, 
+                  cast_fn=lambda c: c.str.to_datetime(time_unit="ms"))
 print(f"AFTER (Datetime): {df_neg['date_time_of_perfusion'].head(3).to_list()} (all null)")
 
 # %% [code]
 # date_time_sbp__90 - Time when SBP dropped below 90
 # Has actual data in negative dataset
 print(f"BEFORE (String): {df_neg['date_time_sbp__90'].drop_nulls().head(3).to_list()}")
-df_neg = df_neg.with_columns(pl.col("date_time_sbp__90").str.to_datetime(time_unit="ms"))
+df_neg = safe_cast(df_neg, "date_time_sbp__90", pl.Datetime, 
+                  cast_fn=lambda c: c.str.to_datetime(time_unit="ms"))
 print(f"AFTER (Datetime): {df_neg['date_time_sbp__90'].drop_nulls().head(3).to_list()}")
 
 
@@ -310,35 +332,35 @@ print(f"AFTER (Datetime): {df_neg['date_time_sbp__90'].drop_nulls().head(3).to_l
 # dcd_nrp_total_pump_time - Total pump time during DCD/NRP (minutes)
 # All null in negative dataset (NRP only for positive cases)
 print(f"BEFORE (String): {df_neg['dcd_nrp_total_pump_time'].head(3).to_list()} (all null)")
-df_neg = df_neg.with_columns(pl.col("dcd_nrp_total_pump_time").cast(pl.Int64))
+df_neg = safe_cast(df_neg, "dcd_nrp_total_pump_time", pl.Int64)
 print(f"AFTER (Int64): {df_neg['dcd_nrp_total_pump_time'].head(3).to_list()} (all null)")
 
 # %% [code]
 # extubation_to_perfusion_warm_ischemic_time - Time from extubation to perfusion (minutes)
 # All null in negative dataset
 print(f"BEFORE (String): {df_neg['extubation_to_perfusion_warm_ischemic_time'].head(3).to_list()} (all null)")
-df_neg = df_neg.with_columns(pl.col("extubation_to_perfusion_warm_ischemic_time").cast(pl.Int64))
+df_neg = safe_cast(df_neg, "extubation_to_perfusion_warm_ischemic_time", pl.Int64)
 print(f"AFTER (Int64): {df_neg['extubation_to_perfusion_warm_ischemic_time'].head(3).to_list()} (all null)")
 
 # %% [code]
 # sbp90_to_declaration - Time from SBP<90 to declaration (minutes)
 # All null in negative dataset
 print(f"BEFORE (String): {df_neg['sbp90_to_declaration'].head(3).to_list()} (all null)")
-df_neg = df_neg.with_columns(pl.col("sbp90_to_declaration").cast(pl.Int64))
+df_neg = safe_cast(df_neg, "sbp90_to_declaration", pl.Int64)
 print(f"AFTER (Int64): {df_neg['sbp90_to_declaration'].head(3).to_list()} (all null)")
 
 # %% [code]
 # tod_to_perfusion - Time from declaration of death to perfusion (minutes)
 # All null in negative dataset
 print(f"BEFORE (String): {df_neg['tod_to_perfusion'].head(3).to_list()} (all null)")
-df_neg = df_neg.with_columns(pl.col("tod_to_perfusion").cast(pl.Int64))
+df_neg = safe_cast(df_neg, "tod_to_perfusion", pl.Int64)
 print(f"AFTER (Int64): {df_neg['tod_to_perfusion'].head(3).to_list()} (all null)")
 
 # %% [code]
 # warm_ischemic_time_agonal_phase_to_cooling - Warm ischemic time (minutes)
 # All null in negative dataset
 print(f"BEFORE (String): {df_neg['warm_ischemic_time_agonal_phase_to_cooling'].head(3).to_list()} (all null)")
-df_neg = df_neg.with_columns(pl.col("warm_ischemic_time_agonal_phase_to_cooling").cast(pl.Int64))
+df_neg = safe_cast(df_neg, "warm_ischemic_time_agonal_phase_to_cooling", pl.Int64)
 print(f"AFTER (Int64): {df_neg['warm_ischemic_time_agonal_phase_to_cooling'].head(3).to_list()} (all null)")
 
 

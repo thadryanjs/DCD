@@ -38,7 +38,7 @@ data_dir = Path("data")
 processed_dir = Path("data/processed")
 
 # %% [markdown]
-# ## 1. Load Processed Dataset
+# # Load Processed Dataset
 #
 # %% [code]
 try:
@@ -51,11 +51,14 @@ except FileNotFoundError:
 print(f"Dataset loaded: {df.shape}")
 
 # %% [markdown]
-# ## 2. Class Distribution
+# # Class Distribution
 #
 # %% [code]
-print("Class Distribution:")
+print("Observation-level Distribution:")
 print(df.group_by("progression_to_death").agg(pl.len().alias("count")).sort("progression_to_death"))
+
+print("\nPatient-level Distribution:")
+print(df.group_by(["alias_filled", "progression_to_death"]).agg(pl.len().alias("obs")).group_by("progression_to_death").agg(pl.len().alias("count")).sort("progression_to_death"))
 
 # %% [code]
 print(
@@ -69,7 +72,7 @@ Class Balance:
 )
 
 # %% [markdown]
-# ## 3. Numeric Features: Mean Differences by Class
+# # Numeric Features: Mean Differences by Class
 #
 # %% [code]
 # Get numeric and categorical columns (exclude label and temporal/datetimes)
@@ -103,7 +106,7 @@ for c, m_pos, m_neg, diff in diffs:
     print(f"  {c:30s}: Pos={m_pos:10.3f}, Neg={m_neg:10.3f}, Diff={diff:8.3f}")
 
 # %% [markdown]
-# ## 4. Missingness Analysis
+# # Missingness Analysis
 # Deep dive into missing data patterns.
 #
 # %% [code]
@@ -310,7 +313,7 @@ plt.show()
 print(f"\nBar chart saved to {plots_dir / 'missingness-bar-chart.png'}")
 
 # %% [markdown]
-# ## 5. Feature Selection
+# # Feature Selection
 # Filter by missingness, low-variance, and high correlation.
 #
 # %% [code]
@@ -424,32 +427,34 @@ else:
 # Remove features that are too predictive on their own (likely proxies for the label).
 #
 # %% [code]
+from sklearn.feature_selection import mutual_info_classif
+
 print("\nChecking for Over-Predictive Features (Leakage)...")
-leakage_threshold = 0.95
+# Use Mutual Information as a more robust leakage metric than raw accuracy
+# High MI indicates the feature shares a lot of information with the target
+mi_threshold = 0.5 # Heuristic: MI > 0.5 is very high for binary targets
 predictive_leaks = []
 clean_features = []
 
 X_all = df.select(high_var_cols).to_pandas()
 y_all = df["progression_to_death"].to_numpy()
 
-# %% [code]
-for c in high_var_cols:
-    series = X_all[c]
-
-    if pd.api.types.is_numeric_dtype(series):
-        X_col = series.fillna(series.median() if not series.isna().all() else 0).values.reshape(-1, 1)
+# For MI, we need to handle missing values first without biasing the leak check
+# Use a simple constant fill just for the MI calculation
+X_mi = X_all.copy()
+for c in X_mi.columns:
+    if pd.api.types.is_numeric_dtype(X_mi[c]):
+        X_mi[c] = X_mi[c].fillna(-999)
     else:
-        mode_val = series.mode()[0] if not series.mode().empty else "missing"
-        filled_series = series.fillna(mode_val)
-        le = LabelEncoder()
-        X_col = le.fit_transform(filled_series.astype(str)).reshape(-1, 1)
+        X_mi[c] = X_mi[c].fillna("missing")
+        X_mi[c] = LabelEncoder().fit_transform(X_mi[c].astype(str))
 
-    clf = DecisionTreeClassifier(max_depth=3)
-    clf.fit(X_col, y_all)
-    acc = accuracy_score(y_all, clf.predict(X_col))
+mi_scores = mutual_info_classif(X_mi, y_all, random_state=8675309)
 
-    if acc > leakage_threshold:
-        predictive_leaks.append((c, acc))
+for i, c in enumerate(high_var_cols):
+    score = mi_scores[i]
+    if score > mi_threshold:
+        predictive_leaks.append((c, score))
     else:
         clean_features.append(c)
 
@@ -485,7 +490,7 @@ for i, feat in enumerate(selected_features, 1):
     print(f"  {i:2d}. {feat}")
 
 # %% [markdown]
-# ## 6. Feature Distribution Overview
+# # Feature Distribution Overview
 #
 # %% [code]
 print("Feature Statistics (selected features only):")

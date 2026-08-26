@@ -55,7 +55,7 @@ plots_dir = Path("output")
 plots_dir.mkdir(parents=True, exist_ok=True)
 
 # %% [markdown]
-# ## 1. Load Data
+# # Load Data
 #
 # %% [code]
 df = pl.read_parquet(data_dir / "analytic-dataset.parquet")
@@ -64,7 +64,7 @@ df = pl.read_parquet(data_dir / "analytic-dataset.parquet")
 print(f"Loaded model-ready dataset: {df.shape}")
 
 # %% [markdown]
-# ## 2. Feature Identification & Preprocessing
+# # Feature Identification & Preprocessing
 #
 # %% [code]
 id_cols = ["alias", "alias_filled", "observation"]
@@ -79,23 +79,20 @@ print(
 )
 
 # %% [code]
-numeric_transformer = Pipeline([
-    ("imputer", IterativeImputer(random_state=42)),
-    ("scaler", StandardScaler()),
-])
+from utils import get_preprocessor
 
-categorical_transformer = Pipeline([
-    ("imputer", SimpleImputer(strategy="constant", fill_value="missing")),
-    ("onehot", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
-])
+# %% [code]
+print(
+    f"Feature set identified:\n"
+    f"  Numeric: {len(numeric_cols)}\n"
+    f"  Categorical: {len(categorical_cols)}"
+)
 
-preprocessor = ColumnTransformer([
-    ("num", numeric_transformer, numeric_cols),
-    ("cat", categorical_transformer, categorical_cols),
-])
+# %% [code]
+preprocessor = get_preprocessor(numeric_cols, categorical_cols)
 
 # %% [markdown]
-# ## 3. Group-Aware Train/Test Split
+# # Group-Aware Train/Test Split
 #
 # %% [code]
 groups = df["alias_filled"].to_numpy()
@@ -103,7 +100,7 @@ x_df = df.select(numeric_cols + categorical_cols).to_pandas()
 y = df["progression_to_death"].to_numpy()
 
 # %% [code]
-gss = GroupShuffleSplit(n_splits=1, train_size=0.8, random_state=42)
+gss = GroupShuffleSplit(n_splits=1, train_size=0.8, random_state=8675309)
 train_idx, test_idx = next(gss.split(x_df, y, groups))
 
 # %% [code]
@@ -123,7 +120,7 @@ Split successfully executed (GroupShuffleSplit):
 )
 
 # %% [markdown]
-# ## 4. Model Architectures & Hyperparameter Grids
+# # Model Architectures & Hyperparameter Grids
 #
 # %% [code]
 pos_count = (y_train == 1).sum()
@@ -134,15 +131,15 @@ spw = neg_count / pos_count if pos_count > 0 else 1
 pipelines = {
     "Logistic Regression": Pipeline([
         ("pre", preprocessor),
-        ("clf", LogisticRegression(max_iter=1000, class_weight="balanced", random_state=42))
+        ("clf", LogisticRegression(max_iter=1000, class_weight="balanced", random_state=8675309))
     ]),
     "Random Forest": Pipeline([
         ("pre", preprocessor),
-        ("clf", RandomForestClassifier(random_state=42, class_weight="balanced"))
+        ("clf", RandomForestClassifier(random_state=8675309, class_weight="balanced"))
     ]),
     "XGBoost": Pipeline([
         ("pre", preprocessor),
-        ("clf", XGBClassifier(random_state=42, verbosity=0, eval_metric="logloss"))
+        ("clf", XGBClassifier(random_state=8675309, verbosity=0, eval_metric="logloss"))
     ]),
 }
 
@@ -165,12 +162,12 @@ param_grids = {
 }
 
 # %% [markdown]
-# ## 5. Nested Cross-Validation
+# # Nested Cross-Validation
 # We use an outer loop for evaluation and an inner loop for tuning.
 #
 # %% [code]
-kf_outer = StratifiedGroupKFold(n_splits=10, shuffle=True, random_state=42)
-kf_inner = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=42)
+kf_outer = StratifiedGroupKFold(n_splits=10, shuffle=True, random_state=8675309)
+kf_inner = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=8675309)
 
 scoring = {
     "accuracy": "accuracy",
@@ -183,6 +180,7 @@ scoring = {
 # %% [code]
 all_cv_results = []
 model_summaries = {}
+model_best_params = {name: [] for name in pipelines.keys()}
 
 # %% [code]
 for name in pipelines.keys():
@@ -204,6 +202,7 @@ for name in pipelines.keys():
         )
         
         grid.fit(x_tr_out, y_tr_out, groups=gr_tr_out)
+        model_best_params[name].append(grid.best_params_)
         best_model = grid.best_estimator_
         y_pred = best_model.predict(x_te_out)
         y_prob = best_model.predict_proba(x_te_out)[:, 1]
@@ -243,7 +242,7 @@ cv_results_df.write_csv(cv_results_path)
 print(f"✓ CV results saved to {cv_results_path}")
 
 # %% [markdown]
-# ## 6. Feature Importance (Random Forest)
+# # Feature Importance (Random Forest)
 # Fit a final Random Forest on the full training set to identify global predictors.
 #
 # %% [code]
@@ -279,18 +278,34 @@ plt.show()
 print(f"✓ Feature importance plot saved to {plots_dir / 'rf_feature_importance.png'}")
 
 # Final Test Set Validation
+from collections import Counter
+import joblib
+
+# Save best params for explainability script
+model_final_params = {}
+saved_models = {}
+
 for name in pipelines.keys():
     print(f"\nEvaluating {name} on Test Set...")
     
-    final_grid = GridSearchCV(
-        estimator=pipelines[name],
-        param_grid=param_grids[name],
-        cv=kf_inner,
-        scoring="accuracy",
-        n_jobs=-1
-    )
-    final_grid.fit(x_train, y_train, groups=groups_train)
-    best_model = final_grid.best_estimator_
+    # Determine consensus best parameters from nested CV folds
+    params_list = model_best_params[name]
+    consensus_params = {}
+    for param_name in params_list[0].keys():
+        values = [p[param_name] for p in params_list]
+        consensus_params[param_name] = Counter(values).most_common(1)[0][0]
+    
+    model_final_params[name] = consensus_params
+    print(f"  Using Consensus Params: {consensus_params}")
+    
+    # Fit model on full training set using consensus parameters
+    best_model = pipelines[name].set_params(**consensus_params)
+    best_model.fit(x_train, y_train)
+    
+    # Save model
+    model_filename = f"{name.lower().replace(' ', '_')}_model.joblib"
+    joblib.dump(best_model, data_dir / model_filename)
+    saved_models[name] = model_filename
     
     y_pred = best_model.predict(x_test)
 
@@ -304,8 +319,15 @@ Test Metrics for {name}:
 """
     )
 
+# Save parameters to artifact
+import json
+with open(data_dir / "model_params.json", "w") as f:
+    json.dump(model_final_params, f)
+print(f"✓ Model parameters saved to {data_dir / 'model_params.json'}")
+print(f"✓ Models saved to {data_dir}")
+
 # %% [markdown]
-# ## 8. CV Performance Visualization
+# # CV Performance Visualization
 #
 # %% [code]
 results_df = pl.read_csv(cv_results_path).to_pandas()

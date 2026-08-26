@@ -1,15 +1,20 @@
 project:
-  type: website
-
-website:
-  title: "DCD Analysis Pipeline"
+  type: default
+  render:
+    - report.qmd
 
 format:
   html:
     toc: true
+    toc-location: body
+    toc-depth: 3
+    number-sections: true
     embed-resources: true
+    theme: cosmo
+    code-fold: false
     code-tools: false
     notebook-links: false
-  pdf:
+  typst:
     toc: true
+    toc-depth: 3
     number-sections: true

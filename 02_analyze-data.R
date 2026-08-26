@@ -15,7 +15,7 @@
 # ---
 
 # %% [markdown]
-# # Mixed-Effects Analysis of Ophthalmology Cases
+# # Mixed-Effects Analysis of Clinical Cases
 # This script performs statistical testing to compare clinical features between patients 
 # who progressed to death vs those who did not. 
 # 
@@ -96,7 +96,7 @@ imputed_data <- mice(df_mice_with_id, m = config$m_imputations,
 print("✓ MICE imputation complete.")
 
 # %% [markdown]
-# ## Step 0: Model Identifiability Check
+# # Model Identifiability Check
 # Check if outcome varies within patients to ensure GLMM is well-posed.
 # %% [code]
 prelim <- complete(imputed_data, 1)
@@ -114,7 +114,7 @@ if (all(within_var$n_levels == 1)) {
 }
 
 # %% [markdown]
-# ## Pooled GLMM Analysis
+# # Pooled GLMM Analysis
 # We use a binomial generalized linear mixed model with a patient-level random intercept
 # to account for repeated measures within patients, pooled across imputations via Rubin's Rules.
 #
@@ -138,22 +138,28 @@ run_pooled_glmm <- function(feature, imputed_obj, label, id, original_df) {
       
       # Step 2: Fit GLMM
       fit <- tryCatch(
-        glmer(
-          y ~ x + (1 | grp),
-          data    = d,
-          family  = binomial,
-          control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 2e5))
-        ),
+        {
+          message(sprintf("Fitting GLMM for %s (Imputation %d)...", feature, i))
+          glmer(
+            y ~ x + (1 | grp),
+            data    = d,
+            family  = binomial,
+            control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 2e5))
+          )
+        },
         error = function(e) {
           # Fallback to nAGQ = 0 (Laplace approximation)
           tryCatch(
-            glmer(
-              y ~ x + (1 | grp),
-              data    = d,
-              family  = binomial,
-              nAGQ    = 0,
-              control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 2e5))
-            ),
+            {
+              message(sprintf("Fallback to nAGQ=0 for %s (Imputation %d)...", feature, i))
+              glmer(
+                y ~ x + (1 | grp),
+                data    = d,
+                family  = binomial,
+                nAGQ    = 0,
+                control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 2e5))
+              )
+            },
             error = function(e2) { 
               message(sprintf("glmer error [%s, imp %d]: %s", feature, i, e2$message))
               NULL 
@@ -248,7 +254,7 @@ print(
 )
 
 # %% [markdown]
-# ## 6. Mixed Effects Forest Plot
+# # Mixed Effects Forest Plot
 #
 # %% [code]
 plot_results <- results %>%
@@ -283,7 +289,7 @@ print(
 )
 
 # %% [markdown]
-# ## 7. Correlation Heatmap (Patient Level)
+# # Correlation Heatmap (Patient Level)
 #
 # %% [code]
 first_imp <- complete(imputed_data, 1)

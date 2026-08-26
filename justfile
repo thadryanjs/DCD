@@ -17,6 +17,8 @@ explore-data:
 
 analyze-data: # install R deps first
     uv run jupytext --to notebook --execute 02_analyze-data.R
+    mv 02_analyze-data.ipynb book/
+    touch book/report.qmd
 
 analyze-model:
     uv run jupytext --to notebook --execute 04_analyze-model.py
@@ -39,18 +41,21 @@ run-all:
     just analyze-data
     just model
     just analyze-model
+    cp -r output book/
 
 preview-report:
-    uv run quarto preview book/report_tech.qmd
+    uv run quarto preview book/report.qmd
 
 render-report:
-	uv run quarto render book/report_tech.qmd --to html
-	uv run quarto render book/report_med.qmd --to html
+	uv run quarto render book/report.qmd --to html
+	uv run quarto render book/report.qmd --to pdf
 
-render-pdf:
-	uv run quarto render book/report_tech.qmd --to pdf
-	uv run quarto render book/report_med.qmd --to pdf
-
-
-render-report-to-html:
-    uv run quarto render book/report.qmd --to html
+bundle:
+    mkdir -p shipment/plots shipment/data shipment/book
+    cp output/*.png shipment/plots/
+    cp output/*.csv shipment/plots/
+    cp output/*.txt shipment/plots/
+    cp data/processed/* shipment/data/
+    cp book/*.ipynb shipment/book/
+    cp *.py *.R justfile spec.md review.md shipment/
+    echo "✓ Results bundle created in shipment/ (Plots in shipment/plots/)"

@@ -43,7 +43,7 @@ plots_dir = Path("output")
 plots_dir.mkdir(parents=True, exist_ok=True)
 
 # %% [markdown]
-# ## 1. Load Data & Preprocessing Setup
+# # Load Data & Preprocessing Setup
 # We maintain absolute consistency with the preprocessing used in the model training script.
 #
 # %% [code]
@@ -65,23 +65,20 @@ print(
 )
 
 # %% [code]
-numeric_transformer = Pipeline([
-    ("imputer", IterativeImputer(random_state=42)),
-    ("scaler", StandardScaler()),
-])
+from utils import get_preprocessor
 
-categorical_transformer = Pipeline([
-    ("imputer", SimpleImputer(strategy="constant", fill_value="missing")),
-    ("onehot", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
-])
+# %% [code]
+print(
+    f"Feature set identified:\n"
+    f"  Numeric: {len(numeric_cols)}\n"
+    f"  Categorical: {len(categorical_cols)}"
+)
 
-preprocessor = ColumnTransformer([
-    ("num", numeric_transformer, numeric_cols),
-    ("cat", categorical_transformer, categorical_cols),
-])
+# %% [code]
+preprocessor = get_preprocessor(numeric_cols, categorical_cols)
 
 # %% [markdown]
-# ## 2. Data Splitting (Consistency Check)
+# # Data Splitting (Consistency Check)
 # We use the same GroupShuffleSplit parameters as `03_model.py` to ensure we are explaining the same training set.
 #
 # %% [code]
@@ -90,7 +87,7 @@ x_df = df.select(numeric_cols + categorical_cols).to_pandas()
 y = df["progression_to_death"].to_numpy()
 
 # %% [code]
-gss = GroupShuffleSplit(n_splits=1, train_size=0.8, random_state=42)
+gss = GroupShuffleSplit(n_splits=1, train_size=0.8, random_state=8675309)
 train_idx, test_idx = next(gss.split(x_df, y, groups))
 
 # %% [code]
@@ -109,25 +106,28 @@ Data split for SHAP analysis:
 )
 
 # %% [markdown]
-# ## 3. Fit Best Random Forest
+# # Fit Best Random Forest
 # We re-fit the RF using the optimal hyperparameters identified during nested CV.
 #
 # %% [code]
-# Hyperparams from CV: n_estimators=200, max_depth=20, min_samples_split=2
-rf_pipeline = Pipeline([
-    ("pre", preprocessor),
-    ("clf", RandomForestClassifier(n_estimators=200, max_depth=20, min_samples_split=2, 
-                                   random_state=42, class_weight="balanced"))
-])
+import joblib
+
+# Load the final Random Forest model from artifact
+model_path = data_dir / "random_forest_model.joblib"
+if model_path.exists():
+    rf_pipeline = joblib.load(model_path)
+    print(f"✓ Loaded Random Forest model from {model_path}")
+else:
+    print("ERROR: RF model artifact not found. Please run 03_model.py first.")
+    # Fallback to fitting if absolutely necessary, but we should avoid this
+    # (keeping fitting code as commented out or removed)
+    raise FileNotFoundError(f"Could not find {model_path}")
 
 # %% [code]
-rf_pipeline.fit(x_train, y_train)
-
-# %% [code]
-print("✓ Random Forest model fitted for explainability.")
+print("✓ Random Forest model ready for explainability.")
 
 # %% [markdown]
-# ## 4. SHAP Analysis
+# # SHAP Analysis
 # We transform the training data and use TreeExplainer to calculate feature contributions.
 #
 # %% [code]
@@ -158,7 +158,7 @@ else:
     shap_values_class1 = shap_values
 
 # %% [markdown]
-# ## 5. SHAP Summary Visualization
+# # SHAP Summary Visualization
 #
 # %% [code]
 plt.figure(figsize=(12, 10))
@@ -172,7 +172,7 @@ plt.show()
 print(f"✓ SHAP summary plot saved to {plots_dir / 'rf_shap_summary.png'}")
 
 # %% [markdown]
-# ## 6. GLMM Alignment (Forest Plot)
+# # GLMM Alignment (Forest Plot)
 # We load the pooled mixed-effects results from the R analysis to verify that the model's 
 # drivers align with statistically unbiased clinical estimates.
 #
@@ -233,7 +233,7 @@ else:
     print("ERROR: GLMM results not found. Please run 02_analyze-data.R first.")
 
 # %% [markdown]
-# ## 7. Feature Directionality Analysis
+# # Feature Directionality Analysis
 # We calculate the correlation between SHAP values and feature values to determine 
 # if a feature is a "Risk Factor" or "Protective Factor".
 #
@@ -243,12 +243,21 @@ for i, col in enumerate(all_feature_names):
     feat_vals = x_train_transformed_df[col].values
     s_vals = shap_values_class1[:, i]
     
-    corr = np.corrcoef(feat_vals, s_vals)[0, 1]
+    # Handle non-linear effects: compare SHAP values for high vs low feature values
+    # We use the median as the split point
+    median_val = np.median(feat_vals)
+    high_mask = feat_vals > median_val
+    low_mask = feat_vals <= median_val
+    
+    avg_shap_high = np.mean(s_vals[high_mask]) if any(high_mask) else 0
+    avg_shap_low = np.mean(s_vals[low_mask]) if any(low_mask) else 0
+    
+    diff = avg_shap_high - avg_shap_low
     importance = np.abs(s_vals).mean()
     
-    if np.isnan(corr): 
+    if np.abs(diff) < 1e-5:
         direction = "Neutral/Non-linear"
-    elif corr > 0: 
+    elif diff > 0: 
         direction = "Risk Factor (Increases Death Prob)"
     else: 
         direction = "Protective Factor (Decreases Death Prob)"
@@ -256,7 +265,7 @@ for i, col in enumerate(all_feature_names):
     directions.append({
         "feature": col,
         "importance": importance,
-        "correlation": corr,
+        "diff_high_low": diff,
         "direction": direction
     })
 
@@ -265,7 +274,7 @@ dir_df = pd.DataFrame(directions).sort_values("importance", ascending=False)
 dir_df.to_csv(plots_dir / "rf_feature_directions.csv", index=False)
 
 # %% [markdown]
-# ## 8. Global Surrogate Model (Consensus Rules)
+# # Global Surrogate Model (Consensus Rules)
 # We train a shallow Decision Tree to mimic the Random Forest's predictions.
 # This extracts a human-readable set of rules that represent the "consensus" logic of the ensemble.
 #
@@ -277,7 +286,7 @@ rf_preds = rf_pipeline.predict(x_train)
 # max_depth=3 keeps the rules clinically interpretable
 surrogate_tree = Pipeline([
     ("pre", preprocessor),
-    ("clf", DecisionTreeClassifier(max_depth=3, random_state=42))
+    ("clf", DecisionTreeClassifier(max_depth=3, random_state=8675309))
 ])
 
 surrogate_tree.fit(x_train, rf_preds)
