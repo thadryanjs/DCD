@@ -1,15 +1,28 @@
 project:
-  type: default
-  render:
-    - report.qmd
+  type: book
+  output-dir: _book
+
+book:
+  title: "DCD Analysis Pipeline"
+  author: "Research Pipeline"
+  date: last-modified
+  chapters:
+    - index.qmd
+    - 00_process-data.ipynb
+    - 01_explore-data.ipynb
+    - 02_analyze-data.ipynb
+    - 03_model.ipynb
+    - 04_analyze-model.ipynb
+
+execute:
+  freeze: auto
+  enabled: false
 
 format:
   html:
     toc: true
-    toc-location: body
     toc-depth: 3
     number-sections: true
-    embed-resources: true
     theme: cosmo
     code-fold: false
     code-tools: false
@@ -18,3 +31,6 @@ format:
     toc: true
     toc-depth: 3
     number-sections: true
+    papersize: a4
+    mainfont: "New Computer Modern"
+    monofont: "Source Code Pro"

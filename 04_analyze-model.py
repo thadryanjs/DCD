@@ -16,8 +16,8 @@
 
 # %% [markdown]
 # # Model Explainability & Statistical Alignment
-# This script uses SHAP (SHapley Additive exPlanations) to understand the directionality 
-# of feature impacts for the Random Forest model and aligns these findings with the 
+# This script uses SHAP (SHapley Additive exPlanations) to understand the directionality
+# of feature impacts for the Random Forest model and aligns these findings with the
 # GLMM results from the R analysis.
 #
 # %% [code]
@@ -173,7 +173,7 @@ print(f"✓ SHAP summary plot saved to {plots_dir / 'rf_shap_summary.png'}")
 
 # %% [markdown]
 # # GLMM Alignment (Forest Plot)
-# We load the pooled mixed-effects results from the R analysis to verify that the model's 
+# We load the pooled mixed-effects results from the R analysis to verify that the model's
 # drivers align with statistically unbiased clinical estimates.
 #
 # %% [code]
@@ -182,37 +182,37 @@ glmm_results_path = data_dir / "feature_analysis.csv"
 # %% [code]
 if glmm_results_path.exists():
     glmm_df = pd.read_csv(glmm_results_path)
-    
+
     # Compute Odds Ratios from coefficients
     glmm_df['OR'] = np.exp(glmm_df['estimate'])
     glmm_df['lower_CI'] = np.exp(glmm_df['ci_low'])
     glmm_df['upper_CI'] = np.exp(glmm_df['ci_high'])
-    
+
     plot_df = glmm_df.sort_values('OR')
 
     plt.figure(figsize=(10, 12))
     plt.axvline(x=1, color='red', linestyle='--', alpha=0.7)
-    
+
     colors = ['#d62728' if p < 0.05 else '#7f7f7f' for p in plot_df['p_value']]
 
     # Plotting error bars (grey)
     plt.errorbar(
-        x=plot_df['OR'], 
-        y=plot_df['feature'], 
+        x=plot_df['OR'],
+        y=plot_df['feature'],
         xerr=[plot_df['OR'] - plot_df['lower_CI'], plot_df['upper_CI'] - plot_df['OR']],
-        fmt='none', 
-        color='grey', 
+        fmt='none',
+        color='grey',
         alpha=0.5,
         capsize=3
     )
 
     # Plotting points (colored by significance)
     plt.scatter(
-        x=plot_df['OR'], 
-        y=plot_df['feature'], 
-        c=colors, 
-        s=30, 
-        edgecolors='black', 
+        x=plot_df['OR'],
+        y=plot_df['feature'],
+        c=colors,
+        s=30,
+        edgecolors='black',
         zorder=3
     )
 
@@ -224,9 +224,9 @@ if glmm_results_path.exists():
     plt.tight_layout()
     plt.savefig(plots_dir / "glmm_forest_plot.png")
     plt.show()
-    
+
     print(f"✓ GLMM Forest plot saved to {plots_dir / 'glmm_forest_plot.png'}")
-    
+
     print("\nTop Mixed Effects Odds Ratios:")
     print(plot_df[['feature', 'OR', 'p_value']].head(10).to_string(index=False))
 else:
@@ -234,7 +234,7 @@ else:
 
 # %% [markdown]
 # # Feature Directionality Analysis
-# We calculate the correlation between SHAP values and feature values to determine 
+# We calculate the correlation between SHAP values and feature values to determine
 # if a feature is a "Risk Factor" or "Protective Factor".
 #
 # %% [code]
@@ -242,26 +242,26 @@ directions = []
 for i, col in enumerate(all_feature_names):
     feat_vals = x_train_transformed_df[col].values
     s_vals = shap_values_class1[:, i]
-    
+
     # Handle non-linear effects: compare SHAP values for high vs low feature values
     # We use the median as the split point
     median_val = np.median(feat_vals)
     high_mask = feat_vals > median_val
     low_mask = feat_vals <= median_val
-    
+
     avg_shap_high = np.mean(s_vals[high_mask]) if any(high_mask) else 0
     avg_shap_low = np.mean(s_vals[low_mask]) if any(low_mask) else 0
-    
+
     diff = avg_shap_high - avg_shap_low
     importance = np.abs(s_vals).mean()
-    
+
     if np.abs(diff) < 1e-5:
         direction = "Neutral/Non-linear"
-    elif diff > 0: 
+    elif diff > 0:
         direction = "Risk Factor (Increases Death Prob)"
-    else: 
+    else:
         direction = "Protective Factor (Decreases Death Prob)"
-    
+
     directions.append({
         "feature": col,
         "importance": importance,
@@ -274,7 +274,7 @@ dir_df = pd.DataFrame(directions).sort_values("importance", ascending=False)
 dir_df.to_csv(plots_dir / "rf_feature_directions.csv", index=False)
 
 # %% [markdown]
-# # Global Surrogate Model (Consensus Rules)
+# # Global Surrogate Model (Consensus Rules) NOT PRODUCTION READY
 # We train a shallow Decision Tree to mimic the Random Forest's predictions.
 # This extracts a human-readable set of rules that represent the "consensus" logic of the ensemble.
 #
@@ -295,7 +295,7 @@ surrogate_tree.fit(x_train, rf_preds)
 plt.figure(figsize=(20, 10))
 tree_model = surrogate_tree.named_steps['clf']
 feat_names = all_feature_names
-plot_tree(tree_model, feature_names=feat_names, class_names=['No Go', 'Go'], 
+plot_tree(tree_model, feature_names=feat_names, class_names=['No Go', 'Go'],
           filled=True, rounded=True, fontsize=10)
 plt.title("Consensus Decision Tree: Go / No Go")
 plt.savefig(plots_dir / "consensus_tree.png")
