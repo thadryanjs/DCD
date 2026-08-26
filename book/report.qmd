@@ -10,6 +10,8 @@ format:
     echo: true
     code-fold: false
     embed-resources: true
+    code-tools: false
+    notebook-links: false
   pdf:
     toc: true
     echo: true

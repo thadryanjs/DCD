@@ -5,6 +5,7 @@
 #     formats: ipynb,py:percent
 #     text_representation:
 #       extension: .py
+#       format_name: percent
 #       format_version: '1.3'
 #       jupytext_version: 1.18.1
 #   kernelspec:
@@ -39,16 +40,22 @@ data_dir = Path("/home/thadryan/Vaults/Projects/Work/Primary/DCD/Code/data/proce
 plots_dir = Path("output")
 plots_dir.mkdir(parents=True, exist_ok=True)
 
+
 # %% [markdown]
 # ## 1. Load Data & Setup Preprocessing
 
 # %% [code]
 df = pl.read_parquet(data_dir / "model-ready-dataset.parquet")
+print(f"Loaded model-ready dataset: {df.shape}")
 
+
+# %% [code]
 id_cols = ["alias", "alias_filled", "observation"]
 numeric_cols = [c for c in df.columns if df.schema[c].is_numeric() and c != "progression_to_death" and c not in id_cols]
 categorical_cols = [c for c in df.columns if not df.schema[c].is_numeric() and c != "progression_to_death"]
 
+
+# %% [code]
 numeric_transformer = Pipeline([
     ("imputer", SimpleImputer(strategy="median")),
     ("scaler", StandardScaler()),
@@ -64,6 +71,8 @@ preprocessor = ColumnTransformer([
     ("cat", categorical_transformer, categorical_cols),
 ])
 
+
+# %% [code]
 # Use same split as in CV script
 groups = df["alias_filled"].to_numpy()
 X_df = df.select(numeric_cols + categorical_cols).to_pandas()
@@ -75,6 +84,15 @@ train_idx, test_idx = next(gss.split(X_df, y, groups))
 X_train, X_test = X_df.iloc[train_idx], X_df.iloc[test_idx]
 y_train, y_test = y[train_idx], y[test_idx]
 groups_train = groups[train_idx]
+
+print(
+    f"""
+Data split for SHAP:
+  Train size: {X_train.shape}
+  Test size: {X_test.shape}
+"""
+)
+
 
 # %% [markdown]
 # ## 2. Fit Best Random Forest
@@ -89,6 +107,8 @@ rf_pipeline = Pipeline([
 ])
 
 rf_pipeline.fit(X_train, y_train)
+print("Random Forest model fitted.")
+
 
 # %% [markdown]
 # ## 3. SHAP Analysis
@@ -101,7 +121,10 @@ all_feature_names = numeric_cols + list(cat_features)
 
 # Create a DataFrame for SHAP
 X_train_transformed_df = pd.DataFrame(X_train_transformed, columns=all_feature_names)
+print(f"Transformed feature matrix shape: {X_train_transformed_df.shape}")
 
+
+# %% [code]
 # Initialize TreeExplainer
 explainer = shap.TreeExplainer(rf_pipeline.named_steps['clf'])
 shap_values = explainer.shap_values(X_train_transformed_df)
@@ -117,6 +140,7 @@ else:
     # Single array returned (already class 1)
     shap_values_class1 = shap_values
 
+
 # %% [markdown]
 # ## 4. Visualization & Directionality
 
@@ -126,8 +150,10 @@ shap.summary_plot(shap_values_class1, X_train_transformed_df, show=False)
 plt.title("SHAP Summary: Feature Impact on Class 1 (Positive Outcome)")
 plt.tight_layout()
 plt.savefig(plots_dir / "rf_shap_summary.png")
-plt.close()
+plt.show()
 
+
+# %% [code]
 # Calculate mean absolute SHAP and sign of correlation to determine direction
 # Direction = sign(correlation(shap_value, feature_value))
 directions = []
@@ -141,7 +167,7 @@ for i, col in enumerate(all_feature_names):
     # Magnitude of impact
     importance = np.abs(s_vals).mean()
     
-    direction = "Positive (Helpful)" if corr > 0 else "Negative (Harmful)"
+    direction = "Risk Factor (Increases Death Prob)" if corr > 0 else "Protective Factor (Decreases Death Prob)"
     if np.isnan(corr): direction = "Neutral/Non-linear"
     
     directions.append({
@@ -154,5 +180,7 @@ for i, col in enumerate(all_feature_names):
 dir_df = pd.DataFrame(directions).sort_values("importance", ascending=False)
 dir_df.to_csv(plots_dir / "rf_feature_directions.csv", index=False)
 
+
+# %% [code]
 print("\nTop Feature Directions:")
-print(dir_df.head(20).to_string(index=False))
+dir_df.head(20)

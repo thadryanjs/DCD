@@ -5,6 +5,7 @@
 #     formats: ipynb,py:percent
 #     text_representation:
 #       extension: .py
+#       format_name: percent
 #       format_version: '1.3'
 #       jupytext_version: 1.18.1
 #   kernelspec:
@@ -52,12 +53,14 @@ data_dir = Path("/home/thadryan/Vaults/Projects/Work/Primary/DCD/Code/data/proce
 plots_dir = Path("output")
 plots_dir.mkdir(parents=True, exist_ok=True)
 
+
 # %% [markdown]
 # ## 1. Load Data
 
 # %% [code]
 df = pl.read_parquet(data_dir / "model-ready-dataset.parquet")
 print(f"Loaded model-ready dataset: {df.shape}")
+
 
 # %% [markdown]
 # ## 2. Train/Test Split & Preprocessing
@@ -68,6 +71,11 @@ id_cols = ["alias", "alias_filled", "observation"]
 numeric_cols = [c for c in df.columns if df.schema[c].is_numeric() and c != "progression_to_death" and c not in id_cols]
 categorical_cols = [c for c in df.columns if not df.schema[c].is_numeric() and c != "progression_to_death"]
 
+print(f"Numeric features: {len(numeric_cols)}")
+print(f"Categorical features: {len(categorical_cols)}")
+
+
+# %% [code]
 # Preprocessing Transformers
 numeric_transformer = Pipeline([
     ("imputer", SimpleImputer(strategy="median")),
@@ -84,6 +92,8 @@ preprocessor = ColumnTransformer([
     ("cat", categorical_transformer, categorical_cols),
 ])
 
+
+# %% [code]
 # Split data with GroupShuffleSplit
 groups = df["alias_filled"].to_numpy()
 X_df = df.select(numeric_cols + categorical_cols).to_pandas()
@@ -96,7 +106,16 @@ X_train, X_test = X_df.iloc[train_idx], X_df.iloc[test_idx]
 y_train, y_test = y[train_idx], y[test_idx]
 groups_train, groups_test = groups[train_idx], groups[test_idx]
 
-print(f"Train shape: {X_train.shape} | Test shape: {X_test.shape}")
+print(
+    f"""
+Split successful:
+  Train shape: {X_train.shape}
+  Test shape: {X_test.shape}
+  Train groups: {len(np.unique(groups_train))} unique patients
+  Test groups: {len(np.unique(groups_test))} unique patients
+"""
+)
+
 
 # %% [markdown]
 # ## 3. Define Models and Hyperparameter Grids
@@ -138,6 +157,7 @@ param_grids = {
         "clf__scale_pos_weight": [spw]
     }
 }
+
 
 # %% [markdown]
 # ## 4. Nested Cross-Validation: Parameter Tuning & Evaluation
@@ -208,10 +228,14 @@ for name in pipelines.keys():
         metrics_summary[m] = (mean_s, std_s)
     model_summaries[name] = metrics_summary
 
+
+# %% [code]
 # Save results
 cv_results_df = pl.DataFrame(all_cv_results)
 cv_results_path = plots_dir / "cv_metrics_per_fold.csv"
 cv_results_df.write_csv(cv_results_path)
+print(f"CV results saved to {cv_results_path}")
+
 
 # %% [markdown]
 # ## 5. Random Forest Feature Importance
@@ -229,6 +253,8 @@ rf_grid = GridSearchCV(
 rf_grid.fit(X_train, y_train, groups=groups_train)
 best_rf = rf_grid.best_estimator_
 
+
+# %% [code]
 # Extract feature names from the preprocessor
 cat_features = best_rf.named_steps['pre'].transformers_[1][1].get_feature_names_out(categorical_cols)
 all_feature_names = numeric_cols + list(cat_features)
@@ -238,12 +264,16 @@ importances = best_rf.named_steps['clf'].feature_importances_
 feat_imp_df = pd.DataFrame({'feature': all_feature_names, 'importance': importances})
 feat_imp_df = feat_imp_df.sort_values('importance', ascending=False)
 
+
+# %% [code]
 plt.figure(figsize=(12, 8))
-sns.barplot(data=feat_imp_df.head(20), x='importance', y='feature', palette='viridis')
+sns.barplot(data=feat_imp_df.head(20), x='importance', y='feature', hue='feature', palette='viridis', legend=False)
 plt.title("Top 20 Feature Importances - Random Forest")
 plt.tight_layout()
 plt.savefig(plots_dir / "rf_feature_importance.png")
+plt.show()
 print(f"Feature importance plot saved to {plots_dir / 'rf_feature_importance.png'}")
+
 
 # %% [markdown]
 # ## 6. Model Comparisons & Findings
@@ -257,9 +287,10 @@ print(f"Feature importance plot saved to {plots_dir / 'rf_feature_importance.png
 # ### XGBoost
 # XGBoost's sensitivity is now handled via the inner tuning loop, providing a fairer comparison.
 
+
 # %% [markdown]
 # ## 7. Final Test Set Validation
-#
+
 # %% [code]
 for name in pipelines.keys():
     print(f"\n{'='*50}\n {name} - Test Set\n{'='*50}")
@@ -276,10 +307,15 @@ for name in pipelines.keys():
     best_model = final_grid.best_estimator_
     
     y_pred = best_model.predict(X_test)
-    print(f"accuracy: {accuracy_score(y_test, y_pred):.3f}")
-    print(f"precision: {precision_score(y_test, y_pred):.3f}")
-    print(f"recall: {recall_score(y_test, y_pred):.3f}")
-    print(f"f1: {f1_score(y_test, y_pred):.3f}")
+    print(
+        f"""
+Accuracy  : {accuracy_score(y_test, y_pred):.3f}
+Precision : {precision_score(y_test, y_pred):.3f}
+Recall    : {recall_score(y_test, y_pred):.3f}
+F1 Score  : {f1_score(y_test, y_pred):.3f}
+"""
+    )
+
 
 # %% [markdown]
 # ## 8. CV Performance Visualization
@@ -288,8 +324,10 @@ for name in pipelines.keys():
 results_df = pl.read_csv(cv_results_path).to_pandas()
 acc_df = results_df[results_df["metric"] == "accuracy"]
 
+
+# %% [code]
 plt.figure(figsize=(10, 6))
-sns.boxplot(data=acc_df, x="model", y="value", palette="Set2")
+sns.boxplot(data=acc_df, x="model", y="value", hue="model", palette="Set2", legend=False)
 sns.stripplot(data=acc_df, x="model", y="value", color=".3", alpha=0.5)
 plt.title("10-Fold Nested CV Accuracy Distribution")
 plt.ylabel("Accuracy")
@@ -297,4 +335,5 @@ plt.xlabel("Model")
 plt.grid(axis='y', linestyle='--', alpha=0.7)
 plt.tight_layout()
 plt.savefig(plots_dir / "cv_accuracy_boxplot.png")
-print(f"Boxplot saved to {plots_dir / 'cv_accuracy_boxplot.png'}")
+plt.show()
+print(f"Boxplot saved to {plots_dir / 'cv_accuracy_boxplot.png}")
