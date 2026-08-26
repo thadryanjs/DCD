@@ -28,8 +28,8 @@ data_dir = Path("/home/thadryan/Vaults/Projects/Work/Primary/DCD/Code/data")
 def load_raw(filename):
     return pl.read_excel(data_dir / filename)
 
-df_pos_raw = load_raw("positive-cases.xlsx")
-df_neg_raw = load_raw("negative-cases.xlsx")
+df_pos_raw = load_raw("positive-cases-Jennys-data-Edited.xlsx")
+df_neg_raw = load_raw("negative-cases-ANR-Data.xlsx")
 
 print(f"Loaded -> Positive: {df_pos_raw.shape}, Negative: {df_neg_raw.shape}")
 
