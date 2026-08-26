@@ -14,6 +14,7 @@ dependencies = [
     "quarto-cli>=1.10.18",
     "xgboost>=3.4.1",
     "pyarrow>=25.0.1",
+    "shap>=0.52.0",
 ]
 
 [tool.uv]
