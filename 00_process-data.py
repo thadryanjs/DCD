@@ -23,15 +23,21 @@ import polars as pl
 from pathlib import Path
 import re
 
-data_dir = Path("/home/thadryan/Vaults/Projects/Work/Primary/DCD/Code/data")
+# %% [code]
+data_dir = Path("data")
 
 def load_raw(filename):
     return pl.read_excel(data_dir / filename)
 
+# %% [code]
 df_pos_raw = load_raw("positive-cases-Jennys-data-Edited.xlsx")
 df_neg_raw = load_raw("negative-cases-ANR-Data.xlsx")
 
-print(f"Loaded -> Positive: {df_pos_raw.shape}, Negative: {df_neg_raw.shape}")
+print(
+    f"Loaded Raw Data\n"
+    f"Positive shape: {df_pos_raw.shape}\n"
+    f"Negative shape: {df_neg_raw.shape}"
+)
 
 # %% [markdown]
 # ## 1. First Look: Raw Data
@@ -89,10 +95,11 @@ def forward_populate_ids(df):
     )
     return df
 
+# %% [code]
 # Proof on toy data
 demo = pl.DataFrame({"alias": [1, None, None, 2, None], "val": [10, 11, 12, 20, 21]})
-print("Before:\n", demo)
-print("\nAfter:\n", forward_populate_ids(demo))
+print("Before forward-fill:\n", demo)
+print("\nAfter forward-fill:\n", forward_populate_ids(demo))
 
 # %% [code]
 df_pos = forward_populate_ids(df_pos_raw)
@@ -110,6 +117,7 @@ print(df_pos.select(["alias_filled", "observation", "Age"]).head(20))
 print("Positive Case Raw Columns:")
 print(df_pos_raw.columns)
 
+# %% [code]
 print("\nNegative Case Raw Columns:")
 print(df_neg_raw.columns)
 
@@ -129,10 +137,11 @@ def clean_colnames(df):
         return name.lower()
     return df.rename({col: _clean(col) for col in df.columns})
 
+# %% [code]
 # Proof on toy data
 demo = pl.DataFrame({"Case/ID": [1], "O2 Sat ": [98], "Age": [50]})
-print("Before:", demo.columns)
-print("After:", clean_colnames(demo).columns)
+print("Before cleaning:", demo.columns)
+print("After cleaning:", clean_colnames(demo).columns)
 
 # %% [code]
 df_pos = clean_colnames(df_pos)
@@ -149,15 +158,23 @@ print(df_pos.head())
 #
 # %% [code]
 pos_empty = df_pos.filter(pl.all_horizontal(pl.all().is_null())).height
-print(f"Positive empty rows: {pos_empty}")
-
 neg_empty = df_neg.filter(pl.all_horizontal(pl.all().is_null())).height
-print(f"Negative empty rows: {neg_empty}")
 
+print(
+    f"Empty rows found:\n"
+    f"Positive: {pos_empty}\n"
+    f"Negative: {neg_empty}"
+)
+
+# %% [code]
 df_pos = df_pos.filter(~pl.all_horizontal(pl.all().is_null()))
 df_neg = df_neg.filter(~pl.all_horizontal(pl.all().is_null()))
 
-print(f"\nFiltered. Shapes: Pos {df_pos.shape}, Neg {df_neg.shape}")
+print(
+    f"\nFiltered empty rows. Final Shapes:\n"
+    f"Pos: {df_pos.shape}\n"
+    f"Neg: {df_neg.shape}"
+)
 
 
 # %% [markdown]
@@ -172,6 +189,7 @@ o2_cols = [c for c in df_pos.columns if "o2" in c.lower()]
 print(f"Potential BMI columns: {bmi_cols}")
 print(f"Potential O2 columns: {o2_cols}")
 
+# %% [code]
 # Show first 5 rows of these columns to verify if they're the same thing
 if bmi_cols or o2_cols:
     cols_to_check = bmi_cols + o2_cols
@@ -199,7 +217,11 @@ if bmi_cols or o2_cols:
 df_pos = df_pos.with_columns(pl.lit(1).alias("progression_to_death"))
 df_neg = df_neg.with_columns(pl.lit(0).alias("progression_to_death"))
 
-print(f"Labels: Pos={df_pos.select('progression_to_death').head(1).item()}, Neg={df_neg.select('progression_to_death').head(1).item()}")
+print(
+    f"Labels assigned:\n"
+    f"Pos: {df_pos.select('progression_to_death').head(1).item()}\n"
+    f"Neg: {df_neg.select('progression_to_death').head(1).item()}"
+)
 
 
 # %% [markdown]
@@ -245,7 +267,6 @@ else:
 # ### Handling Mismatches
 # Each mismatched column is handled bespoke based on its semantic meaning.
 #
-
 # %% [markdown]
 # #### Datetime Columns (String → Datetime[ms])
 # These columns contain timestamps stored as strings in the negative dataset.

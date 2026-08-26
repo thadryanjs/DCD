@@ -40,7 +40,8 @@ import pandas as pd
 # Third-party
 from sklearn.model_selection import cross_validate, train_test_split, StratifiedGroupKFold, GroupShuffleSplit, GridSearchCV
 from sklearn.preprocessing import StandardScaler
-from sklearn.impute import SimpleImputer
+from sklearn.experimental import enable_iterative_imputer
+from sklearn.impute import IterativeImputer, SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
@@ -50,7 +51,7 @@ from sklearn.preprocessing import OneHotEncoder
 from xgboost import XGBClassifier
 import statsmodels.api as sm
 
-data_dir = Path("/home/thadryan/Vaults/Projects/Work/Primary/DCD/Code/data/processed")
+data_dir = Path("data/processed")
 plots_dir = Path("output")
 plots_dir.mkdir(parents=True, exist_ok=True)
 
@@ -59,7 +60,7 @@ plots_dir.mkdir(parents=True, exist_ok=True)
 # ## 1. Load Data
 
 # %% [code]
-df = pl.read_parquet(data_dir / "model-ready-dataset.parquet")
+df = pl.read_parquet(data_dir / "analytic-dataset.parquet")
 print(f"Loaded model-ready dataset: {df.shape}")
 
 
@@ -79,7 +80,7 @@ print(f"Categorical features: {len(categorical_cols)}")
 # %% [code]
 # Preprocessing Transformers
 numeric_transformer = Pipeline([
-    ("imputer", SimpleImputer(strategy="median")),
+    ("imputer", IterativeImputer(random_state=42)),
     ("scaler", StandardScaler()),
 ])
 
