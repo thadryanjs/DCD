@@ -4,6 +4,7 @@
 - Don't run the report preview - I usually have one going so this only invites confusion and mistakes.
 - Don't execute code unless I say to - I usually run and selectively share output.
 - We're using `uv`. This means run commands need to be written `uv run {whatever}` not just `{whatever}`. This applies to writing the justfile commands as well.
+- The project was started in Python though we had to introduce one R script.
 
 ## Data & ML Constraints
 - **Patient-Level Leakage**: The dataset contains multiple observations per patient (`alias_filled`). Standard random splits cause severe data leakage (memorization of patients).

@@ -15,12 +15,11 @@
 # ---
 
 # %% [markdown]
-# # Model Explainability: SHAP Analysis for Random Forest
+# # Model Explainability & Statistical Alignment
+# This script uses SHAP (SHapley Additive exPlanations) to understand the directionality 
+# of feature impacts for the Random Forest model and aligns these findings with the 
+# GLMM results from the R analysis.
 #
-# ## Goal
-# Use SHAP (SHapley Additive exPlanations) to understand not just which features are important, 
-# but how they influence the model's prediction (directionality).
-
 # %% [code]
 import polars as pl
 from pathlib import Path
@@ -29,35 +28,44 @@ import numpy as np
 import pandas as pd
 import shap
 
-from sklearn.model_selection import StratifiedGroupKFold, GroupShuffleSplit, GridSearchCV
+from sklearn.model_selection import GroupShuffleSplit, GridSearchCV
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.impute import SimpleImputer
+from sklearn.experimental import enable_iterative_imputer
+from sklearn.impute import IterativeImputer, SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.compose import ColumnTransformer
 
-data_dir = Path("/home/thadryan/Vaults/Projects/Work/Primary/DCD/Code/data/processed")
+# %% [code]
+data_dir = Path("data/processed")
 plots_dir = Path("output")
 plots_dir.mkdir(parents=True, exist_ok=True)
 
-
 # %% [markdown]
-# ## 1. Load Data & Setup Preprocessing
+# ## 1. Load Data & Preprocessing Setup
+# We maintain absolute consistency with the preprocessing used in the model training script.
+#
+# %% [code]
+df = pl.read_parquet(data_dir / "analytic-dataset.parquet")
 
 # %% [code]
-df = pl.read_parquet(data_dir / "model-ready-dataset.parquet")
-print(f"Loaded model-ready dataset: {df.shape}")
-
+print(f"Loaded analytic dataset: {df.shape}")
 
 # %% [code]
 id_cols = ["alias", "alias_filled", "observation"]
 numeric_cols = [c for c in df.columns if df.schema[c].is_numeric() and c != "progression_to_death" and c not in id_cols]
 categorical_cols = [c for c in df.columns if not df.schema[c].is_numeric() and c != "progression_to_death"]
 
+# %% [code]
+print(
+    f"Feature set identified:\n"
+    f"  Numeric: {len(numeric_cols)}\n"
+    f"  Categorical: {len(categorical_cols)}"
+)
 
 # %% [code]
 numeric_transformer = Pipeline([
-    ("imputer", SimpleImputer(strategy="median")),
+    ("imputer", IterativeImputer(random_state=42)),
     ("scaler", StandardScaler()),
 ])
 
@@ -71,110 +79,120 @@ preprocessor = ColumnTransformer([
     ("cat", categorical_transformer, categorical_cols),
 ])
 
-
+# %% [markdown]
+# ## 2. Data Splitting (Consistency Check)
+# We use the same GroupShuffleSplit parameters as `03_model.py` to ensure we are explaining the same training set.
+#
 # %% [code]
-# Use same split as in CV script
 groups = df["alias_filled"].to_numpy()
-X_df = df.select(numeric_cols + categorical_cols).to_pandas()
+x_df = df.select(numeric_cols + categorical_cols).to_pandas()
 y = df["progression_to_death"].to_numpy()
 
+# %% [code]
 gss = GroupShuffleSplit(n_splits=1, train_size=0.8, random_state=42)
-train_idx, test_idx = next(gss.split(X_df, y, groups))
+train_idx, test_idx = next(gss.split(x_df, y, groups))
 
-X_train, X_test = X_df.iloc[train_idx], X_df.iloc[test_idx]
+# %% [code]
+x_train, x_test = x_df.iloc[train_idx], x_df.iloc[test_idx]
 y_train, y_test = y[train_idx], y[test_idx]
 groups_train = groups[train_idx]
 
+# %% [code]
 print(
     f"""
-Data split for SHAP:
-  Train size: {X_train.shape}
-  Test size: {X_test.shape}
+Data split for SHAP analysis:
+  Train size: {x_train.shape}
+  Test size: {x_test.shape}
+  Patients in train: {len(np.unique(groups_train))}
 """
 )
 
-
 # %% [markdown]
-# ## 2. Fit Best Random Forest
-# We re-fit the best RF parameters identified in the CV process.
-
+# ## 3. Fit Best Random Forest
+# We re-fit the RF using the optimal hyperparameters identified during nested CV.
+#
 # %% [code]
-# Params from previous run: n_estimators=200, max_depth=20, min_samples_split=2
+# Hyperparams from CV: n_estimators=200, max_depth=20, min_samples_split=2
 rf_pipeline = Pipeline([
     ("pre", preprocessor),
     ("clf", RandomForestClassifier(n_estimators=200, max_depth=20, min_samples_split=2, 
                                    random_state=42, class_weight="balanced"))
 ])
 
-rf_pipeline.fit(X_train, y_train)
-print("Random Forest model fitted.")
-
-
-# %% [markdown]
-# ## 3. SHAP Analysis
+# %% [code]
+rf_pipeline.fit(x_train, y_train)
 
 # %% [code]
-# SHAP needs the transformed features
-X_train_transformed = rf_pipeline.named_steps['pre'].transform(X_train)
+print("✓ Random Forest model fitted for explainability.")
+
+# %% [markdown]
+# ## 4. SHAP Analysis
+# We transform the training data and use TreeExplainer to calculate feature contributions.
+#
+# %% [code]
+x_train_transformed = rf_pipeline.named_steps['pre'].transform(x_train)
 cat_features = rf_pipeline.named_steps['pre'].transformers_[1][1].get_feature_names_out(categorical_cols)
 all_feature_names = numeric_cols + list(cat_features)
 
-# Create a DataFrame for SHAP
-X_train_transformed_df = pd.DataFrame(X_train_transformed, columns=all_feature_names)
-print(f"Transformed feature matrix shape: {X_train_transformed_df.shape}")
-
+# %% [code]
+x_train_transformed_df = pd.DataFrame(x_train_transformed, columns=all_feature_names)
 
 # %% [code]
-# Initialize TreeExplainer
-explainer = shap.TreeExplainer(rf_pipeline.named_steps['clf'])
-shap_values = explainer.shap_values(X_train_transformed_df)
+print(
+    f"Transformed feature matrix created:\n"
+    f"  Rows: {x_train_transformed_df.shape[0]}\n"
+    f"  Cols: {x_train_transformed_df.shape[1]}"
+)
 
-# For binary classification, shap_values is often a list [class0, class1]. We want class 1.
+# %% [code]
+explainer = shap.TreeExplainer(rf_pipeline.named_steps['clf'])
+shap_values = explainer.shap_values(x_train_transformed_df)
+
+# %% [code]
 if isinstance(shap_values, list):
-    # Some versions of SHAP return list for RF
     shap_values_class1 = shap_values[1]
 elif len(shap_values.shape) == 3:
-    # Some versions return (samples, features, classes)
     shap_values_class1 = shap_values[:, :, 1]
 else:
-    # Single array returned (already class 1)
     shap_values_class1 = shap_values
 
-
 # %% [markdown]
-# ## 5. Visualization & Directionality
-
+# ## 5. SHAP Summary Visualization
+#
 # %% [code]
 plt.figure(figsize=(12, 10))
-shap.summary_plot(shap_values_class1, X_train_transformed_df, show=False)
-plt.title("SHAP Summary: Feature Impact on Class 1 (Positive Outcome)")
+shap.summary_plot(shap_values_class1, x_train_transformed_df, show=False)
+plt.title("SHAP Summary: Feature Impact on Positive Outcome (Death)")
 plt.tight_layout()
 plt.savefig(plots_dir / "rf_shap_summary.png")
 plt.show()
 
+# %% [code]
+print(f"✓ SHAP summary plot saved to {plots_dir / 'rf_shap_summary.png'}")
 
 # %% [markdown]
-# ## 6. Mixed Effects Forest Plot
-# We leverage the results from the Generalized Linear Mixed Models (GLMM) conducted in the R analysis.
-# This accounts for repeated observations per patient to provide unbiased Odds Ratios.
+# ## 6. GLMM Alignment (Forest Plot)
+# We load the pooled mixed-effects results from the R analysis to verify that the model's 
+# drivers align with statistically unbiased clinical estimates.
+#
+# %% [code]
+glmm_results_path = data_dir / "feature_analysis.csv"
 
 # %% [code]
-# Load GLMM results from R analysis
-glmm_results_path = data_dir / "feature_analysis.csv"
 if glmm_results_path.exists():
     glmm_df = pd.read_csv(glmm_results_path)
     
-    # Calculate Odds Ratios and CIs from coefficients
+    # Compute Odds Ratios from coefficients
     glmm_df['OR'] = np.exp(glmm_df['estimate'])
     glmm_df['lower_CI'] = np.exp(glmm_df['ci_low'])
     glmm_df['upper_CI'] = np.exp(glmm_df['ci_high'])
     
     plot_df = glmm_df.sort_values('OR')
 
+    # %% [code]
     plt.figure(figsize=(10, 12))
     plt.axvline(x=1, color='red', linestyle='--', alpha=0.7)
     
-    # Color by p-value
     colors = ['#d62728' if p < 0.05 else '#7f7f7f' for p in plot_df['p_value']]
 
     plt.errorbar(
@@ -197,29 +215,35 @@ if glmm_results_path.exists():
     plt.savefig(plots_dir / "glmm_forest_plot.png")
     plt.show()
     
-    print(f"GLMM Forest plot saved to {plots_dir / 'glmm_forest_plot.png'}")
+    # %% [code]
+    print(f"✓ GLMM Forest plot saved to {plots_dir / 'glmm_forest_plot.png'}")
+    
+    # %% [code]
     print("\nTop Mixed Effects Odds Ratios:")
     print(plot_df[['feature', 'OR', 'p_value']].head(10).to_string(index=False))
 else:
-    print("GLMM results not found. Please run 02_analyze-data.R first.")
+    print("ERROR: GLMM results not found. Please run 02_analyze-data.R first.")
 
-
+# %% [markdown]
+# ## 7. Feature Directionality Analysis
+# We calculate the correlation between SHAP values and feature values to determine 
+# if a feature is a "Risk Factor" or "Protective Factor".
+#
 # %% [code]
-# Calculate mean absolute SHAP and sign of correlation to determine direction
-# Direction = sign(correlation(shap_value, feature_value))
 directions = []
 for i, col in enumerate(all_feature_names):
-    feat_vals = X_train_transformed_df[col].values
+    feat_vals = x_train_transformed_df[col].values
     s_vals = shap_values_class1[:, i]
     
-    # Correlation between feature value and its SHAP value
     corr = np.corrcoef(feat_vals, s_vals)[0, 1]
-    
-    # Magnitude of impact
     importance = np.abs(s_vals).mean()
     
-    direction = "Risk Factor (Increases Death Prob)" if corr > 0 else "Protective Factor (Decreases Death Prob)"
-    if np.isnan(corr): direction = "Neutral/Non-linear"
+    if np.isnan(corr): 
+        direction = "Neutral/Non-linear"
+    elif corr > 0: 
+        direction = "Risk Factor (Increases Death Prob)"
+    else: 
+        direction = "Protective Factor (Decreases Death Prob)"
     
     directions.append({
         "feature": col,
@@ -228,10 +252,13 @@ for i, col in enumerate(all_feature_names):
         "direction": direction
     })
 
+# %% [code]
 dir_df = pd.DataFrame(directions).sort_values("importance", ascending=False)
 dir_df.to_csv(plots_dir / "rf_feature_directions.csv", index=False)
 
+# %% [code]
+print(f"✓ Feature directions saved to {plots_dir / 'rf_feature_directions.csv'}")
 
 # %% [code]
 print("\nTop Feature Directions:")
-dir_df.head(20)
+print(dir_df.head(20).to_string(index=False))

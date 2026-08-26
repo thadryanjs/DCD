@@ -18,13 +18,25 @@ explore-data:
 analyze-data: # install R deps first
     Rscript 02_analyze-data.R
 
+analyze-model:
+    uv run jupytext --to notebook --execute 04_analyze-model.py
+    mv 04_analyze-model.ipynb book/
+    touch book/report.qmd
+
 model:
     uv run jupytext --to notebook --execute 03_model.py
     mv 03_model.ipynb book/
     touch book/report.qmd
 
 install-r-deps:
-    Rscript -e "install.packages(c('arrow', 'tidyverse', 'lme4', 'lmerTest', 'broom.mixed', 'corrplot'), repos='https://cloud.r-project.org')"
+    Rscript -e "install.packages(c('arrow', 'tidyverse', 'lme4', 'lmerTest', 'broom.mixed', 'corrplot', 'mice'), repos='https://cloud.r-project.org')"
+
+run-all:
+    just process-data
+    just explore-data
+    just analyze-data
+    just model
+    just analyze-model
 
 preview-report:
     uv run quarto preview book/report.qmd
