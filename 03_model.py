@@ -222,7 +222,7 @@ for name in pipelines.keys():
                 "value": val
             })
 
-    # %% [code]
+    # Results for the model
     print(f"\nResults for {name}:")
     metrics_summary = {}
     for m, scores in outer_metrics.items():
@@ -275,11 +275,7 @@ plt.show()
 # %% [code]
 print(f"✓ Feature importance plot saved to {plots_dir / 'rf_feature_importance.png'}")
 
-# %% [markdown]
-# ## 7. Final Test Set Validation
-# Evaluate the best-tuned versions of each model on the held-out test set.
-#
-# %% [code]
+# Final Test Set Validation
 for name in pipelines.keys():
     print(f"\nEvaluating {name} on Test Set...")
     
@@ -295,7 +291,6 @@ for name in pipelines.keys():
     
     y_pred = best_model.predict(x_test)
 
-    # %% [code]
     print(
         f"""
 Test Metrics for {name}:

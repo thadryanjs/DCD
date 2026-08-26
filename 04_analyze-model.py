@@ -189,21 +189,30 @@ if glmm_results_path.exists():
     
     plot_df = glmm_df.sort_values('OR')
 
-    # %% [code]
     plt.figure(figsize=(10, 12))
     plt.axvline(x=1, color='red', linestyle='--', alpha=0.7)
     
     colors = ['#d62728' if p < 0.05 else '#7f7f7f' for p in plot_df['p_value']]
 
+    # Plotting error bars (grey)
     plt.errorbar(
         x=plot_df['OR'], 
         y=plot_df['feature'], 
         xerr=[plot_df['OR'] - plot_df['lower_CI'], plot_df['upper_CI'] - plot_df['OR']],
-        fmt='o', 
-        color=colors, 
-        markersize=6, 
-        capsize=3,
-        markeredgecolor='black'
+        fmt='none', 
+        color='grey', 
+        alpha=0.5,
+        capsize=3
+    )
+
+    # Plotting points (colored by significance)
+    plt.scatter(
+        x=plot_df['OR'], 
+        y=plot_df['feature'], 
+        c=colors, 
+        s=30, 
+        edgecolors='black', 
+        zorder=3
     )
 
     plt.xscale('log')
@@ -215,10 +224,8 @@ if glmm_results_path.exists():
     plt.savefig(plots_dir / "glmm_forest_plot.png")
     plt.show()
     
-    # %% [code]
     print(f"✓ GLMM Forest plot saved to {plots_dir / 'glmm_forest_plot.png'}")
     
-    # %% [code]
     print("\nTop Mixed Effects Odds Ratios:")
     print(plot_df[['feature', 'OR', 'p_value']].head(10).to_string(index=False))
 else:

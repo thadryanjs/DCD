@@ -28,15 +28,17 @@ model:
     mv 03_model.ipynb book/
     touch book/report.qmd
 
+# needs fortran
 install-r-deps:
     Rscript -e "install.packages(c('arrow', 'tidyverse', 'lme4', 'lmerTest', 'broom.mixed', 'corrplot', 'mice'), repos='https://cloud.r-project.org')"
 
 run-all:
     just process-data
     just explore-data
-    just analyze-data
+    # just analyze-data
     just model
     just analyze-model
+
 
 preview-report:
     uv run quarto preview book/report.qmd

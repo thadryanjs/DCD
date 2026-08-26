@@ -83,11 +83,11 @@ print(f"Total candidate features: {len(candidate_cols)}")
 
 # %% [code]
 # Calculate mean differences by class efficiently
-class_means = df.group_by("progression_to_death").mean()
+class_means = df.group_by("progression_to_death").agg(pl.col(numeric_cols).mean())
 pos_means = class_means.filter(col("progression_to_death") == 1).row(0)
 neg_means = class_means.filter(col("progression_to_death") == 0).row(0)
 
-col_names = class_means.columns[1:]
+col_names = numeric_cols
 diffs = []
 for i, c in enumerate(col_names):
     m_pos = pos_means[i+1] if pos_means[i+1] is not None else 0.0
@@ -144,7 +144,7 @@ neg_total = df.filter(col("progression_to_death") == 0).height
 for i, c in enumerate(df.columns):
     pos_missing = pos_row[i+1] if pos_row else 0
     neg_missing = neg_row[i+1] if neg_row else 0
-    
+
     pos_pct = pos_missing / pos_total * 100 if pos_total > 0 else 0
     neg_pct = neg_missing / neg_total * 100 if neg_total > 0 else 0
 
@@ -191,10 +191,10 @@ binary_cmap = ListedColormap(["white", "black"])
 
 # %% [code]
 plt.figure(figsize=(14, 10))
-sns.heatmap(missing_matrix, 
-            cmap=binary_cmap, 
-            cbar=False, 
-            xticklabels=numeric_cols, 
+sns.heatmap(missing_matrix,
+            cmap=binary_cmap,
+            cbar=False,
+            xticklabels=numeric_cols,
             rasterized=True)
 plt.title("Missingness Heatmap (Original Spreadsheet Order)")
 plt.ylabel("Row Index")
@@ -286,7 +286,7 @@ plt.savefig(plots_dir / "missingness-distribution.png", dpi=150)
 plt.show()
 
 # %% [code]
-print(f"\nDistribution plot saved to {plots_dir / 'missingness-distribution.png'")
+print(f"\nDistribution plot saved to {plots_dir / 'missingness-distribution.png'}")
 
 # %% [code]
 # Bar chart: features sorted by missingness (descending)
@@ -307,7 +307,7 @@ plt.savefig(plots_dir / "missingness-bar-chart.png", dpi=150)
 plt.show()
 
 # %% [code]
-print(f"\nBar chart saved to {plots_dir / 'missingness-bar-chart.png'")
+print(f"\nBar chart saved to {plots_dir / 'missingness-bar-chart.png'}")
 
 # %% [markdown]
 # ## 5. Feature Selection
@@ -316,7 +316,7 @@ print(f"\nBar chart saved to {plots_dir / 'missingness-bar-chart.png'")
 # %% [code]
 # 1. Define Exclusion Lists
 leak_exclusion_list = [
-    "dcd_nrp_total_pump_time", 
+    "dcd_nrp_total_pump_time",
     "extubation_to_perfusion_warm_ischemic_time",
     "tod_to_perfusion",
     "sbp90_to_declaration",
@@ -325,8 +325,8 @@ leak_exclusion_list = [
 ]
 
 id_exclusion_list = [
-    "alias", 
-    "alias_filled", 
+    "alias",
+    "alias_filled",
     "observation"
 ]
 
@@ -354,7 +354,7 @@ print(missing_df)
 # 3. Filter by missingness threshold (< 10%) AND not in any exclusion list
 missingness_threshold = 0.10  # Remove features with >10% missing
 survivors = missing_df.filter(
-    (col("missing_pct") <= missingness_threshold * 100) & 
+    (col("missing_pct") <= missingness_threshold * 100) &
     (~col("feature").is_in(all_excludes))
 ).get_column("feature").to_list()
 
@@ -410,7 +410,6 @@ if len(numeric_high_var) > 1:
                 if abs(corr_val) > 0.9:
                     high_corr_pairs.append((c1, c2, corr_val))
 
-    # %% [code]
     if high_corr_pairs:
         print("Highly correlated feature pairs (|r| > 0.9) - consider dropping one:")
         for c1, c2, corr_val in high_corr_pairs:
@@ -436,7 +435,7 @@ y_all = df["progression_to_death"].to_numpy()
 # %% [code]
 for c in high_var_cols:
     series = X_all[c]
-    
+
     if pd.api.types.is_numeric_dtype(series):
         X_col = series.fillna(series.median() if not series.isna().all() else 0).values.reshape(-1, 1)
     else:
@@ -444,11 +443,11 @@ for c in high_var_cols:
         filled_series = series.fillna(mode_val)
         le = LabelEncoder()
         X_col = le.fit_transform(filled_series.astype(str)).reshape(-1, 1)
-    
+
     clf = DecisionTreeClassifier(max_depth=3)
     clf.fit(X_col, y_all)
     acc = accuracy_score(y_all, clf.predict(X_col))
-    
+
     if acc > leakage_threshold:
         predictive_leaks.append((c, acc))
     else:
@@ -466,16 +465,21 @@ selected_features = clean_features
 
 # %% [code]
 # Save final analytic dataset
-# We include 'alias_filled' for grouping during cross-validation to prevent patient-level leakage.
-df_model = df.select(selected_features + ["alias_filled", "progression_to_death"])
+# We include 'alias_filled' and 'observation' for grouping/traceability
+df_model = df.select(selected_features + ["alias_filled", "observation", "progression_to_death"])
 output_analytic = processed_dir / "analytic-dataset.parquet"
 df_model.write_parquet(output_analytic)
+
+# Also save as CSV to avoid R 'arrow' dependency issues
+output_analytic_csv = processed_dir / "analytic-dataset.csv"
+df_model.write_csv(output_analytic_csv)
 
 # %% [code]
 print(f"\\n{'='*60}")
 print(f"FINAL FEATURE SET: {len(selected_features)} features")
 print(f"{'='*60}")
 print(f"Analytic dataset saved to: {output_analytic}")
+print(f"CSV export saved to: {output_analytic_csv}")
 print(f"Shape: {df_model.shape}")
 for i, feat in enumerate(selected_features, 1):
     print(f"  {i:2d}. {feat}")
