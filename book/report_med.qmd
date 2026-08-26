@@ -1,0 +1,15 @@
+---
+title: "DCD Analysis Pipeline (Executive Summary)"
+execute:
+  echo: false
+---
+
+{{< embed 00_process-data.ipynb echo=false >}}
+
+{{< embed 01_explore-data.ipynb echo=false >}}
+
+{{< embed 02_analyze-data.ipynb echo=false >}}
+
+{{< embed 03_model.ipynb echo=false >}}
+
+{{< embed 04_analyze-model.ipynb echo=false >}}

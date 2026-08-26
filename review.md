@@ -1,112 +1,76 @@
-# Code Review: `01_explore-data.py` & `02_analyze-data.R`
+# Remaining Work: Data Pipeline and Modeling
 
----
+## 00_process-data.py
+- [ ] **Fix Concat Risk**: Use `how="diagonal"` in `pl.concat` to prevent crash on column mismatch.
+- [ ] **Robust Type Cast**: Add error handling/validation for `str.to_datetime` and `cast(pl.Int64)`.
 
-## CORRECTNESS (Bugs - Wrong Results)
+## 01_explore-data.py
+- [ ] **Refine Leakage Heuristic**: Replace crude 95% accuracy threshold with a more robust method.
+- [ ] **Fix Fill Order**: Move median filling after leak check to avoid masking patterns.
 
-### Python (`01_explore-data.py`)
+## 03_model.py
+- [ ] **Optimize CV**: Remove redundant `GridSearchCV` in final test set validation. Use best params from nested CV.
 
-| Issue | Location | Severity |
-|-------|----------|----------|
-| `.describe()` used instead of `.corr()` for correlation matrix | Line ~170 | **Critical** |
-| Silent null handling: `if mean_pos is None: mean_pos = 0.0` | Line ~85 | High |
-| Missingness heatmap warning but no actual downsampling logic | Line ~145 | High |
-| Hardcoded absolute paths (`/home/thadryan/...`) | Line ~15 | Medium |
+## 04_analyze-model.py
+- [ ] **Fix Directionality Analysis**: Replace `np.corrcoef` with a method that handles non-linear SHAP effects.
+- [ ] **Remove Param Hardcoding**: Load RF hyperparameters from an artifact instead of hardcoding.
 
-### R (`02_analyze-data.R`)
 
-| Issue | Location | Severity |
-|-------|----------|----------|
-| No GLMM convergence status check | Line ~55 | **Critical** |
-| No multiple testing correction (Bonferroni/FDR) | Line ~65 | **Critical** |
-| Per-feature `drop_na()` creates inconsistent denominators | Line ~50 | High |
-| R script skips Python's leakage detection step | N/A | High |
-| Hardcoded relative paths (breaks if run from different CWD) | Line ~10 | Medium |
 
----
+Manual nitpicks:
+- Don't "manually" number sections no reason, just gets out of date, etc
+- Does this account for the fact we have repeated measures?
+    print("Class Distribution:")
+    print(df.group_by("progression_to_death").agg(pl.len().alias("count")).sort("progression_to_death"))
+- I don't see the visualization in this section: Missingness Heatmap
+- Get the Ophthalmology stuff out of here - them models keep latching on to this, there is NOTHING related to it here I linked to another project for a TEMPLATE for structure. MUST GO.
+- Use seed 8675309
+    - Does MICE need it? Put it anywhere it's not clear it ISN'T needed
+- Section called "Step 0", again non of this
+- Pooled GLMM Analysis - this section doesn't use the transparent jupytext structure hardly at all PRINT all the stuff for me to read
+- 6. Mixed Effects Forest Plot <- numbers again
+- 7. Correlation Heatmap (Patient Level) - numbers and I don't see the plot
+- df = pl.read_parquet(data_dir / "analytic-dataset.parquet") Are we using parquet or CSV? Whatever it is, be consistent
+- Feature Importance (Random Forest) <- is this using the best params we established in teh grid or repeating grid? Why if so?
+- Why are we seeing these again?
+✓ Feature importance plot saved to output/rf_feature_importance.png
 
-## EFFICIENCY (Performance - Slow/Memory)
+Evaluating Logistic Regression on Test Set...
 
-### Python (`01_explore-data.py`)
+Test Metrics for Logistic Regression:
+  Accuracy  : 0.847
+  Precision : 0.912
+  Recall    : 0.799
+  F1 Score  : 0.852
+- Are fitting a whole new set of models in the explainability script? Why? Save them and load them
 
-| Issue | Location | Impact |
-|-------|----------|--------|
-| Per-column mean difference: 2N table scans | Line ~80-90 | High |
-| Missingness comparison: 4N table scans | Line ~115-125 | High |
-| `.to_dicts()` + Python loop for filtering | Line ~210 | Medium |
-| `.row(0)` + Python loop for missing stats | Line ~105 | Medium |
-| No lazy evaluation (all eager operations) | Throughout | Medium |
-| Per-column schema access in list comprehension | Line ~75 | Low |
+print(
+    f"Feature set identified:\n"
+    f"  Numeric: {len(numeric_cols)}\n"
+    f"  Categorical: {len(categorical_cols)}"
+)
 
-### R (`02_analyze-data.R`)
+Feature set identified:
+  Numeric: 13
+  Categorical: 8
+numeric_transformer = Pipeline([
+    ("imputer", IterativeImputer(random_state=42)),
+    ("scaler", StandardScaler()),
+])
 
-| Issue | Location | Impact |
-|-------|----------|--------|
-| `map()` + `glmer()` per feature (no parallelization) | Line ~65 | Medium |
-| Patient-level aggregation then raw data for GLMM (inconsistent) | Line ~40, ~50 | Low |
+categorical_transformer = Pipeline([
+    ("imputer", SimpleImputer(strategy="constant", fill_value="missing")),
+    ("onehot", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
+])
 
----
+preprocessor = ColumnTransformer([
+    ("num", numeric_transformer, numeric_cols),
+    ("cat", categorical_transformer, categorical_cols),
+])
 
-## STYLE (Readability - Conventions)
-
-### Python (`01_explore-data.py`)
-
-| Issue | Location | Fix |
-|-------|----------|-----|
-| `import pandas as pd` mid-script (line ~220) | Line ~220 | Move to top |
-| `import numpy as np` unused | Line ~10 | Remove |
-| `sklearn` imports split across file | Lines ~20, ~220 | Consolidate at top |
-| `pl.col()` verbose vs `from polars import col` | Throughout | Add `from polars import col` |
-| Hardcoded absolute paths | Line ~15 | Use relative paths or env vars |
-
-### R (`02_analyze-data.R`)
-
-| Issue | Location | Fix |
-|-------|----------|-----|
-| `p_load()` hides missing dependencies | Line ~5 | Use explicit `library()` calls |
-| Hardcoded relative paths | Line ~10 | Use `here::here()` or env vars |
-
----
-
-## CROSS-LANGUAGE ISSUES
-
-| Issue | Python | R |
-|-------|--------|---|
-| Hardcoded paths | ✅ | ✅ |
-| Silent failures | ✅ | ✅ |
-| Leakage detection | ✅ (skipped by R) | ❌ |
-
----
-
-## REMEDIATION PLAN
-
-### Phase 1: Correctness (Must Fix)
-1. [ ] Python: Change `.describe()` to `.corr()` for correlation matrix
-2. [ ] Python: Add actual downsampling when missingness matrix > threshold
-3. [ ] R: Add GLMM convergence check
-4. [ ] R: Add Bonferroni/FDR correction to p-values
-5. [ ] R: Use consistent data source (aggregated or raw, not both)
-6. [ ] R: Run leakage detection or document why skipped
-
-### Phase 2: Efficiency (Should Fix)
-1. [ ] Python: Replace per-column filters with single `group_by().mean()`
-2. [ ] Python: Replace `.to_dicts()` + loop with `filter().get_column()`
-3. [ ] Python: Add lazy evaluation wrapper
-4. [ ] R: Consider parallel GLMM execution
-
-### Phase 3: Style (Nice to Fix)
-1. [ ] Python: Consolidate imports at top
-2. [ ] Python: Remove unused `numpy` import
-3. [ ] Python: Add `from polars import col`
-4. [ ] Python: Fix hardcoded paths
-5. [ ] R: Replace `p_load()` with explicit `library()` calls
-6. [ ] R: Fix hardcoded paths
-
----
-
-## NOTES
-
-- **Spec compliance**: Type hints not required per `spec.md`
-- **Jupytext**: Both scripts use percent format correctly
-- **uv**: Python scripts should use `uv run` for execution
-- **Data leakage**: `spec.md` requires `StratifiedGroupKFold` - verify downstream scripts comply
+- Are we repeating this that's mostly the same as the analysis script?
+6. GLMM Alignment (Forest Plot)
+We load the pooled mixed-effects results from the R analysis to verify that the model’s drivers align with statistically unbiased clinical estimates.
+- These need to be visible in the report, all the plots do
+dir_df = pd.DataFrame(directions).sort_values("importance", ascending=False)
+dir_df.to_csv(plots_dir / "rf_feature_directions.csv", index=False)

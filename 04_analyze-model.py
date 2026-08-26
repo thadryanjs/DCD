@@ -35,6 +35,7 @@ from sklearn.impute import IterativeImputer, SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.compose import ColumnTransformer
+from sklearn.tree import DecisionTreeClassifier, plot_tree, export_text
 
 # %% [code]
 data_dir = Path("data/processed")
@@ -162,7 +163,7 @@ else:
 # %% [code]
 plt.figure(figsize=(12, 10))
 shap.summary_plot(shap_values_class1, x_train_transformed_df, show=False)
-plt.title("SHAP Summary: Feature Impact on Positive Outcome (Death)")
+plt.title("SHAP Summary: Feature Impact on Decision: Go / No Go")
 plt.tight_layout()
 plt.savefig(plots_dir / "rf_shap_summary.png")
 plt.show()
@@ -263,9 +264,41 @@ for i, col in enumerate(all_feature_names):
 dir_df = pd.DataFrame(directions).sort_values("importance", ascending=False)
 dir_df.to_csv(plots_dir / "rf_feature_directions.csv", index=False)
 
+# %% [markdown]
+# ## 8. Global Surrogate Model (Consensus Rules)
+# We train a shallow Decision Tree to mimic the Random Forest's predictions.
+# This extracts a human-readable set of rules that represent the "consensus" logic of the ensemble.
+#
 # %% [code]
-print(f"✓ Feature directions saved to {plots_dir / 'rf_feature_directions.csv'}")
+# 1. Get RF predictions for the training set (the target for our surrogate)
+rf_preds = rf_pipeline.predict(x_train)
 
-# %% [code]
-print("\nTop Feature Directions:")
-print(dir_df.head(20).to_string(index=False))
+# 2. Fit a shallow Decision Tree as a surrogate
+# max_depth=3 keeps the rules clinically interpretable
+surrogate_tree = Pipeline([
+    ("pre", preprocessor),
+    ("clf", DecisionTreeClassifier(max_depth=3, random_state=42))
+])
+
+surrogate_tree.fit(x_train, rf_preds)
+
+# 3. Visualize the Tree
+plt.figure(figsize=(20, 10))
+tree_model = surrogate_tree.named_steps['clf']
+feat_names = all_feature_names
+plot_tree(tree_model, feature_names=feat_names, class_names=['No Go', 'Go'], 
+          filled=True, rounded=True, fontsize=10)
+plt.title("Consensus Decision Tree: Go / No Go")
+plt.savefig(plots_dir / "consensus_tree.png")
+plt.show()
+
+# 4. Export Textual Rules
+tree_rules = export_text(tree_model, feature_names=feat_names)
+with open(plots_dir / "consensus_rules.txt", "w") as f:
+    f.write("Consensus Rules: Go / No Go (Surrogate of Random Forest)\n")
+    f.write("====================================================================\n")
+    f.write("Class 1 = GO (High Risk) | Class 0 = NO GO (Low Risk)\n\n")
+    f.write(tree_rules)
+
+print(f"✓ Consensus tree saved to {plots_dir / 'consensus_tree.png'}")
+print(f"✓ Consensus rules saved to {plots_dir / 'consensus_rules.txt'}")

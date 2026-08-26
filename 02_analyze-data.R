@@ -2,7 +2,7 @@
 # jupyter:
 #   jupytext:
 #     cell_metadata_filter: title,-all
-#     formats: ipynb,py:percent
+#     formats: ipynb,R:percent
 #     text_representation:
 #       extension: .R
 #       format_name: percent
@@ -96,45 +96,109 @@ imputed_data <- mice(df_mice_with_id, m = config$m_imputations,
 print("✓ MICE imputation complete.")
 
 # %% [markdown]
-# ## Pooled GLM Analysis (Fallback)
-# To avoid lme4 system failures, we aggregate to patient-level means and use pooled GLM.
-# This removes pseudoreplication while maintaining statistical validity.
+# ## Step 0: Model Identifiability Check
+# Check if outcome varies within patients to ensure GLMM is well-posed.
+# %% [code]
+prelim <- complete(imputed_data, 1)
+within_var <- prelim %>%
+  dplyr::group_by(.data[[config$id]]) %>%
+  dplyr::summarise(n_levels = dplyr::n_distinct(.data[[config$label]]), .groups = "drop")
+
+if (all(within_var$n_levels == 1)) {
+  warning(
+    "Outcome is CONSTANT within every patient. A (1 | patient_id) random ",
+    "intercept is not identifiable here (expect singular fits and unstable ",
+    "fixed effects). A patient-level GLM is the appropriate model for a ",
+    "time-invariant outcome. Proceeding as requested, but treat results with care."
+  )
+}
+
+# %% [markdown]
+# ## Pooled GLMM Analysis
+# We use a binomial generalized linear mixed model with a patient-level random intercept
+# to account for repeated measures within patients, pooled across imputations via Rubin's Rules.
 #
 # %% [code]
-run_pooled_glm <- function(feature, imputed_obj, label, id, original_df) {
+run_pooled_glmm <- function(feature, imputed_obj, label, id, original_df) {
   tryCatch({
     fits_list <- list()
+    diag_list <- list()
+    
     for (i in 1:imputed_obj$m) {
-      # 1. Extract and aggregate to patient level
-      data_i <- complete(imputed_obj, i)
+      di <- complete(imputed_obj, i)
       
-      patient_df <- data_i %>%
-        group_by(!!sym(id), !!sym(label)) %>%
-        summarise(x = mean(!!sym(feature), na.rm = TRUE), .groups = "drop") %>%
-        as.data.frame()
+      # Step 1: Data prep to fix 'list' coercion error
+      # Extract columns as atomic vectors via unlist()
+      d <- data.frame(
+        y   = as.integer(unlist(di[[label]],   use.names = FALSE)),
+        x   = as.numeric(scale(unlist(di[[feature]], use.names = FALSE))),
+        grp = factor(   unlist(di[[id]],       use.names = FALSE))
+      )
+      stopifnot(!any(vapply(d, is.list, logical(1))))
       
-      # 2. Fit Logistic Regression
-      fit_i <- glm(as.formula("progression_to_death ~ x"), 
-                   data = patient_df, 
-                   family = binomial)
-      fits_list[[i]] <- fit_i
+      # Step 2: Fit GLMM
+      fit <- tryCatch(
+        glmer(
+          y ~ x + (1 | grp),
+          data    = d,
+          family  = binomial,
+          control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 2e5))
+        ),
+        error = function(e) {
+          # Fallback to nAGQ = 0 (Laplace approximation)
+          tryCatch(
+            glmer(
+              y ~ x + (1 | grp),
+              data    = d,
+              family  = binomial,
+              nAGQ    = 0,
+              control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 2e5))
+            ),
+            error = function(e2) { 
+              message(sprintf("glmer error [%s, imp %d]: %s", feature, i, e2$message))
+              NULL 
+            }
+          )
+        }
+      )
+      
+      if (!is.null(fit)) {
+        fits_list[[i]] <- fit
+        # Step 3: Per-fit diagnostics
+        diag_list[[i]] <- list(
+          singular  = lme4::isSingular(fit),
+          re_sd     = sqrt(as.numeric(lme4::VarCorr(fit)$grp)),
+          converged = is.null(fit@optinfo$conv$lme4$messages)
+        )
+      }
     }
     
-    # Pool results
-    res_list <- map(fits_list, ~tidy(.x))
-    pooled_res <- bind_rows(res_list) %>%
-      filter(term == "x") %>%
-      summarise(
-        estimate = mean(estimate),
-        std_error = mean(std.error),
-        p_value = mean(p.value),
-        feature = feature,
-        test = "Pooled GLM (Patient-Means)"
-      ) %>%
-      mutate(z_value = estimate / std_error,
-             p_value = 2 * (1 - pnorm(abs(z_value))))
+    fits <- Filter(Negate(is.null), fits_list)
+    if (length(fits) < 2) return(NULL)   # Rubin's Rules need m >= 2
     
-    # Means from first imputation
+    # Step 4: Pool fixed effects with Rubin's Rules
+    pooled <- summary(mice::pool(mice::as.mira(fits)), conf.int = TRUE)
+    row_x  <- pooled[pooled$term == "x", ]
+    
+    # Aggregate diagnostics
+    valid_diags <- Filter(Negate(is.null), diag_list)
+    frac_singular <- mean(sapply(valid_diags, `[[`, "singular"))
+    frac_nonconv  <- mean(!sapply(valid_diags, `[[`, "converged"))
+
+    pooled_res <- tibble::tibble(
+      feature       = feature,
+      estimate      = row_x$estimate,
+      std_error     = row_x$std.error,
+      z_value       = row_x$statistic,
+      p_value       = row_x$p.value,
+      ci_low        = row_x[["2.5 %"]],
+      ci_high       = row_x[["97.5 %"]],
+      frac_singular = frac_singular,
+      frac_nonconv  = frac_nonconv,
+      test          = "Binomial GLMM (random patient intercept), MICE + Rubin's Rules"
+    )
+    
+    # Means from first imputation for descriptive statistics
     first_imp <- complete(imputed_obj, 1)
     first_imp <- as.data.frame(first_imp)
     
@@ -155,25 +219,21 @@ run_pooled_glm <- function(feature, imputed_obj, label, id, original_df) {
 }
 
 # %% [code]
-results <- map(numeric_features, ~run_pooled_glm(.x, imputed_data, config$label, config$id, df)) %>%
+results <- map(numeric_features, ~run_pooled_glmm(.x, imputed_data, config$label, config$id, df)) %>%
   compact() %>%
   map_dfr(~left_join(.x$stats, .x$means, by = "feature")) %>%
   mutate(p_adj = p.adjust(p_value, method = "fdr")) %>%
-  rename(estimate = estimate,
-         std_error = std_error,
-         z_value = z_value,
-         p_value = p_value) %>%
-  mutate(ci_low = estimate - 1.96 * std_error,
-         ci_high = estimate + 1.96 * std_error,
-         mean_positive = `mean_1`,
-         mean_negative = `mean_0`,
-         diff = mean_positive - mean_negative) %>%
-  select(feature, mean_positive, mean_negative, diff, p_value, p_adj, estimate, z_value, ci_low, ci_high, test) %>%
+  mutate(
+    mean_positive = `mean_1`,
+    mean_negative = `mean_0`,
+    diff = mean_positive - mean_negative
+  ) %>%
+  select(feature, mean_positive, mean_negative, diff, p_value, p_adj, estimate, z_value, ci_low, ci_high, test, frac_singular, frac_nonconv) %>%
   arrange(p_value)
 
 # %% [code]
 print(
-    sprintf("✓ Pooled GLM completed: %d features analyzed", nrow(results))
+    sprintf("✓ Pooled GLMM completed: %d features analyzed", nrow(results))
 )
 
 # %% [markdown]
@@ -207,7 +267,7 @@ ggplot(plot_results, aes(x = OR, y = feature)) +
                      labels = c("p_adj >= 0.05", "p_adj < 0.05"), 
                      name = "Significance") +
   labs(title = "Pooled Logistic Regression: Odds Ratios (95% CI)",
-       subtitle = "Patient-level means and MICE Multiple Imputation (m=5)",
+       subtitle = "Identifying High-Risk Cases for 'Send It' Decision (Patient-level means + MICE)",
        x = "Odds Ratio (Log Scale)",
        y = "Clinical Feature") +
   theme_minimal() +

@@ -44,7 +44,7 @@ from sklearn.impute import IterativeImputer, SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import make_scorer, precision_score, recall_score, f1_score, accuracy_score
+from sklearn.metrics import make_scorer, precision_score, recall_score, f1_score, accuracy_score, roc_auc_score
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder
 from xgboost import XGBClassifier
@@ -177,6 +177,7 @@ scoring = {
     "precision": make_scorer(precision_score),
     "recall": make_scorer(recall_score),
     "f1": make_scorer(f1_score),
+    "auc": "roc_auc",
 }
 
 # %% [code]
@@ -205,12 +206,14 @@ for name in pipelines.keys():
         grid.fit(x_tr_out, y_tr_out, groups=gr_tr_out)
         best_model = grid.best_estimator_
         y_pred = best_model.predict(x_te_out)
+        y_prob = best_model.predict_proba(x_te_out)[:, 1]
         
         fold_results = {
             "accuracy": accuracy_score(y_te_out, y_pred),
             "precision": precision_score(y_te_out, y_pred, zero_division=0),
             "recall": recall_score(y_te_out, y_pred, zero_division=0),
             "f1": f1_score(y_te_out, y_pred, zero_division=0),
+            "auc": roc_auc_score(y_te_out, y_prob),
         }
         
         for m, val in fold_results.items():
@@ -321,4 +324,20 @@ plt.savefig(plots_dir / "cv_accuracy_boxplot.png")
 plt.show()
 
 # %% [code]
-print(f"✓ Boxplot saved to {plots_dir / 'cv_accuracy_boxplot.png'}")
+auc_df = results_df[results_df["metric"] == "auc"]
+
+# %% [code]
+plt.figure(figsize=(10, 6))
+sns.boxplot(data=auc_df, x="model", y="value", hue="model", palette="Set2", legend=False)
+sns.stripplot(data=auc_df, x="model", y="value", color=".3", alpha=0.5)
+plt.title("10-Fold Nested CV AUC Distribution")
+plt.ylabel("AUC")
+plt.xlabel("Model")
+plt.grid(axis='y', linestyle='--', alpha=0.7)
+plt.tight_layout()
+plt.savefig(plots_dir / "cv_auc_boxplot.png")
+plt.show()
+
+# %% [code]
+print(f"✓ Boxplots saved: cv_accuracy_boxplot.png, cv_auc_boxplot.png")
+

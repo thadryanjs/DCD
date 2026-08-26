@@ -365,7 +365,7 @@ else:
 #
 # %% [code]
 print("Attempting concat...")
-df_all = pl.concat([df_pos, df_neg])
+df_all = pl.concat([df_pos, df_neg], how="diagonal")
 print(f"Concatenation successful!")
 print(f"Final Dataset Shape: {df_all.shape}")
 
