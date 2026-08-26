@@ -9,8 +9,13 @@
 - We're using `jupytext` to have clean scripts with good git diffs while also being able to compile to jupyter books. If you're an agent, ask about a skill for this. Some basics:
     - Any prints should occur at the end of a cell and start a new cell - so three smalls cells to instead of one larger one to print three things. It swill then read code/output/code/output/code/output not code/code/code/output/output/output.
 - All the imports go at the top! No exceptions!
+- Don't change file names without asking me. If it's a slightly different name than expected it's because I did it on purpose.
 
 ## Project
 - Don't run the report preview - I usually have one going so this only invites confusion and mistakes.
 - Don't execute code unless I say to - I usually run and selectively share output.
 - We're using `uv`. This means run commands need to be written `uv run {whatever}` not just `{whatever}`. This applies to writing the justfile commands as well.
+
+## Data & ML Constraints
+- **Patient-Level Leakage**: The dataset contains multiple observations per patient (`alias_filled`). Standard random splits cause severe data leakage (memorization of patients).
+- **Requirement**: Always use `StratifiedGroupKFold` or `GroupShuffleSplit` with `groups=df["alias_filled"]` to ensure all observations for a single patient stay within the same fold.

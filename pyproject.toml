@@ -15,6 +15,7 @@ dependencies = [
     "xgboost>=3.4.1",
     "pyarrow>=25.0.1",
     "shap>=0.52.0",
+    "scipy>=1.18.1",
 ]
 
 [tool.uv]

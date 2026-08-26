@@ -193,13 +193,13 @@ if bmi_cols or o2_cols:
 #
 # %% [markdown]
 # ## 6. Labeling
-# Assign binary labels.
+# Assign binary labels: 1 = progression to death (positive outcome).
 #
 # %% [code]
-df_pos = df_pos.with_columns(pl.lit(1).alias("label"))
-df_neg = df_neg.with_columns(pl.lit(0).alias("label"))
+df_pos = df_pos.with_columns(pl.lit(1).alias("progression_to_death"))
+df_neg = df_neg.with_columns(pl.lit(0).alias("progression_to_death"))
 
-print(f"Labels: Pos={df_pos.select('label').head(1).item()}, Neg={df_neg.select('label').head(1).item()}")
+print(f"Labels: Pos={df_pos.select('progression_to_death').head(1).item()}, Neg={df_neg.select('progression_to_death').head(1).item()}")
 
 
 # %% [markdown]

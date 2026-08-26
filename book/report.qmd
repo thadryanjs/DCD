@@ -15,8 +15,8 @@ format:
     echo: true
 ---
 
-{{< embed 00_process-dataset.ipynb echo=true >}}
+{{< embed 00_process-data.ipynb echo=true >}}
 
 {{< embed 01_explore-data.ipynb echo=true >}}
 
-{{< embed 02_model-cross-validation.ipynb echo=true >}}
+{{< embed 03_model.ipynb echo=true >}}

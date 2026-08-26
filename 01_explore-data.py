@@ -49,16 +49,16 @@ print(f"Dataset loaded: {df.shape}")
 #
 # %% [code]
 print("Class Distribution:")
-print(df.group_by("label").agg(pl.len().alias("count")).sort("label"))
+print(df.group_by("progression_to_death").agg(pl.len().alias("count")).sort("progression_to_death"))
 
 # %% [code]
 print(
     f"""
 Class Balance:
-  Positive (1): {df.filter(pl.col("label") == 1).height} rows
-  Negative (0): {df.filter(pl.col("label") == 0).height} rows
+  Positive (1): {df.filter(pl.col("progression_to_death") == 1).height} rows
+  Negative (0): {df.filter(pl.col("progression_to_death") == 0).height} rows
   Total: {df.height} rows
-  Positive Rate: {df.filter(pl.col("label") == 1).height / df.height * 100:.1f}%
+  Positive Rate: {df.filter(pl.col("progression_to_death") == 1).height / df.height * 100:.1f}%
 """
 )
 
@@ -67,8 +67,8 @@ Class Balance:
 #
 # %% [code]
 # Get numeric and categorical columns (exclude label and temporal/datetimes)
-numeric_cols = [c for c in df.columns if df.schema[c].is_numeric() and c != "label"]
-categorical_cols = [c for c in df.columns if not df.schema[c].is_numeric() and not df.schema[c].is_temporal() and c != "label"]
+numeric_cols = [c for c in df.columns if df.schema[c].is_numeric() and c != "progression_to_death"]
+categorical_cols = [c for c in df.columns if not df.schema[c].is_numeric() and not df.schema[c].is_temporal() and c != "progression_to_death"]
 candidate_cols = numeric_cols + categorical_cols
 
 print(f"Numeric features: {len(numeric_cols)}")
@@ -79,8 +79,8 @@ print(f"Total candidate features: {len(candidate_cols)}")
 # Calculate absolute differences
 diffs = []
 for col in numeric_cols:
-    mean_pos = df.filter(pl.col("label") == 1).select(pl.col(col).mean()).item()
-    mean_neg = df.filter(pl.col("label") == 0).select(pl.col(col).mean()).item()
+    mean_pos = df.filter(pl.col("progression_to_death") == 1).select(pl.col(col).mean()).item()
+    mean_neg = df.filter(pl.col("progression_to_death") == 0).select(pl.col(col).mean()).item()
     # Handle null means (all null values in a class)
     if mean_pos is None:
         mean_pos = 0.0
@@ -124,10 +124,10 @@ for col, count, pct in missing_stats:
 print("\nMissingness Comparison: Positive vs Negative Class")
 print("=" * 70)
 for col in df.columns:
-    pos_missing = df.filter(pl.col("label") == 1, pl.col(col).is_null()).height
-    neg_missing = df.filter(pl.col("label") == 0, pl.col(col).is_null()).height
-    pos_total = df.filter(pl.col("label") == 1).height
-    neg_total = df.filter(pl.col("label") == 0).height
+    pos_missing = df.filter(pl.col("progression_to_death") == 1, pl.col(col).is_null()).height
+    neg_missing = df.filter(pl.col("progression_to_death") == 0, pl.col(col).is_null()).height
+    pos_total = df.filter(pl.col("progression_to_death") == 1).height
+    neg_total = df.filter(pl.col("progression_to_death") == 0).height
 
     pos_pct = pos_missing / pos_total * 100 if pos_total > 0 else 0
     neg_pct = neg_missing / neg_total * 100 if neg_total > 0 else 0
@@ -239,7 +239,7 @@ for i, col in enumerate(high_comp_cols, 1):
 # Create and save analytic dataset
 # Drop raw 'alias' as it's redundant with 'alias_filled'
 analytic_cols = [c for c in high_comp_cols if c != "alias"]
-df_analytic = df.select(analytic_cols + ["label"])
+df_analytic = df.select(analytic_cols + ["progression_to_death"])
 output_analytic = processed_dir / "analytic-dataset.parquet"
 df_analytic.write_parquet(output_analytic)
 print(f"\nAnalytic dataset saved to: {output_analytic}")
@@ -412,7 +412,7 @@ import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 
 X_all = df.select(high_var_cols).to_pandas()
-y_all = df["label"].to_numpy()
+y_all = df["progression_to_death"].to_numpy()
 
 for col in high_var_cols:
     series = X_all[col]
@@ -448,7 +448,7 @@ selected_features = clean_features
 # %% [code]
 # Save final model-ready dataset
 # We include 'alias_filled' for grouping during cross-validation to prevent patient-level leakage.
-df_model = df.select(selected_features + ["alias_filled", "label"])
+df_model = df.select(selected_features + ["alias_filled", "progression_to_death"])
 output_model = processed_dir / "model-ready-dataset.parquet"
 df_model.write_parquet(output_model)
 

@@ -65,8 +65,8 @@ print(f"Loaded model-ready dataset: {df.shape}")
 # %% [code]
 # Identify feature types
 id_cols = ["alias", "alias_filled", "observation"]
-numeric_cols = [c for c in df.columns if df.schema[c].is_numeric() and c != "label" and c not in id_cols]
-categorical_cols = [c for c in df.columns if not df.schema[c].is_numeric() and c != "label"]
+numeric_cols = [c for c in df.columns if df.schema[c].is_numeric() and c != "progression_to_death" and c not in id_cols]
+categorical_cols = [c for c in df.columns if not df.schema[c].is_numeric() and c != "progression_to_death"]
 
 # Preprocessing Transformers
 numeric_transformer = Pipeline([
@@ -87,7 +87,7 @@ preprocessor = ColumnTransformer([
 # Split data with GroupShuffleSplit
 groups = df["alias_filled"].to_numpy()
 X_df = df.select(numeric_cols + categorical_cols).to_pandas()
-y = df["label"].to_numpy()
+y = df["progression_to_death"].to_numpy()
 
 gss = GroupShuffleSplit(n_splits=1, train_size=0.8, random_state=42)
 train_idx, test_idx = next(gss.split(X_df, y, groups))
@@ -210,7 +210,7 @@ for name in pipelines.keys():
 
 # Save results
 cv_results_df = pl.DataFrame(all_cv_results)
-cv_results_path = data_dir / "cv_metrics_per_fold.csv"
+cv_results_path = plots_dir / "cv_metrics_per_fold.csv"
 cv_results_df.write_csv(cv_results_path)
 
 # %% [markdown]

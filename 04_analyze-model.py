@@ -46,8 +46,8 @@ plots_dir.mkdir(parents=True, exist_ok=True)
 df = pl.read_parquet(data_dir / "model-ready-dataset.parquet")
 
 id_cols = ["alias", "alias_filled", "observation"]
-numeric_cols = [c for c in df.columns if df.schema[c].is_numeric() and c != "label" and c not in id_cols]
-categorical_cols = [c for c in df.columns if not df.schema[c].is_numeric() and c != "label"]
+numeric_cols = [c for c in df.columns if df.schema[c].is_numeric() and c != "progression_to_death" and c not in id_cols]
+categorical_cols = [c for c in df.columns if not df.schema[c].is_numeric() and c != "progression_to_death"]
 
 numeric_transformer = Pipeline([
     ("imputer", SimpleImputer(strategy="median")),
@@ -67,7 +67,7 @@ preprocessor = ColumnTransformer([
 # Use same split as in CV script
 groups = df["alias_filled"].to_numpy()
 X_df = df.select(numeric_cols + categorical_cols).to_pandas()
-y = df["label"].to_numpy()
+y = df["progression_to_death"].to_numpy()
 
 gss = GroupShuffleSplit(n_splits=1, train_size=0.8, random_state=42)
 train_idx, test_idx = next(gss.split(X_df, y, groups))
@@ -81,8 +81,7 @@ groups_train = groups[train_idx]
 # We re-fit the best RF parameters identified in the CV process.
 
 # %% [code]
-# Params from previous run: n_estimators=200, max_depth=20, min_samples_split=2 (example based on grid)
-# For stability, we'll run a quick final fit.
+# Params from previous run: n_estimators=200, max_depth=20, min_samples_split=2
 rf_pipeline = Pipeline([
     ("pre", preprocessor),
     ("clf", RandomForestClassifier(n_estimators=200, max_depth=20, min_samples_split=2, 
