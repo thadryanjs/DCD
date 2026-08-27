@@ -2,11 +2,20 @@
 ## Project
 - This is an inferential and predictive ML project predicting if an individual went on to an absorbing state (1) and didn't (0).
 - There are multiple observations per subject so we used Mixed Effects Models for the classical statistical approach and group-aware stratification in the ML script.
+- The code IS the report - we're using jupytext to write normal, git-friendly scripts and compile them to reader friendly pdf/html reports.
 - This report used a previous report about Ophthalmology as a template and agents keep trying to stick name of it all over the place. It's a template. We're not cloning the name. This project is about DCD and that should be the only name reflected in naming conventions.
 - Don't run the report preview - I usually have one going so this only invites confusion and mistakes.
 - Don't execute code unless I say to - I usually run and selectively share output.
 - We're using `uv`. This means run commands need to be written `uv run {whatever}` not just `{whatever}`. This applies to writing the justfile commands as well.
 - The project was started in Python though we had to introduce one R script.
+- We want to use a mixed-effects model (lme4 in R) for a more classical, inferential analysis.
+    - The random effects would be person-level ids.
+    - We want to note significant predictors.
+- We want to produce a ten-fold cross-validated classifier for an ML approach
+    - We want to see
+        - Accuracy and AUC at each fold (as a boxplot)
+        - Features importance
+        - SHAP
 
 ## Data & ML Constraints
 - **Patient-Level Leakage**: The dataset contains multiple observations per patient (`alias_filled`). Standard random splits cause severe data leakage (memorization of patients).

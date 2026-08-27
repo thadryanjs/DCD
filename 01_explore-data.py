@@ -58,6 +58,10 @@ print("Observation-level Distribution:")
 print(df.group_by("progression_to_death").agg(pl.len().alias("count")).sort("progression_to_death"))
 
 print("\nPatient-level Distribution:")
+unique_patients = df["alias_filled"].n_unique()
+avg_obs = df.height / unique_patients
+print(f"Total Unique Individuals: {unique_patients}")
+print(f"Average Obs per Person: {avg_obs:.2f}")
 print(df.group_by(["alias_filled", "progression_to_death"]).agg(pl.len().alias("obs")).group_by("progression_to_death").agg(pl.len().alias("count")).sort("progression_to_death"))
 
 # %% [code]

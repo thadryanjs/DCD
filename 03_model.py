@@ -288,19 +288,19 @@ saved_models = {}
 for name in pipelines.keys():
     print(f"\nEvaluating {name} on Test Set...")
     
-    # Determine consensus best parameters from nested CV folds
-    params_list = model_best_params[name]
-    consensus_params = {}
-    for param_name in params_list[0].keys():
-        values = [p[param_name] for p in params_list]
-        consensus_params[param_name] = Counter(values).most_common(1)[0][0]
+    # Fit model on full training set using GridSearchCV to find best params
+    grid = GridSearchCV(
+        estimator=pipelines[name],
+        param_grid=param_grids[name],
+        cv=kf_inner,
+        scoring="accuracy",
+        n_jobs=-1
+    )
+    grid.fit(x_train, y_train, groups=groups_train)
+    best_model = grid.best_estimator_
     
-    model_final_params[name] = consensus_params
-    print(f"  Using Consensus Params: {consensus_params}")
-    
-    # Fit model on full training set using consensus parameters
-    best_model = pipelines[name].set_params(**consensus_params)
-    best_model.fit(x_train, y_train)
+    model_final_params[name] = grid.best_params_
+    print(f"  Best Params: {grid.best_params_}")
     
     # Save model
     model_filename = f"{name.lower().replace(' ', '_')}_model.joblib"
