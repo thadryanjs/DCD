@@ -1,5 +1,5 @@
 - Remove current consensus tree (hacky)
-- Add a "first look only" logistic regression model after the mixed effects model.
+- [x] Add a "first look only" logistic regression model after the mixed effects model.
     - This is the R one.
     - Filter the first observations only and proceed as normal.
     - This is to avoid any assumptions about when in the time series decisions need to be made.

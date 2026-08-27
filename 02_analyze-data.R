@@ -243,6 +243,32 @@ print(
 )
 
 # %% [markdown]
+# # First Look Only Analysis
+# We filter for the first observation per patient to assess predictors available at the 
+# start of the process, removing time-series bias.
+#
+# %% [code]
+first_look_df <- complete(imputed_data, 1) %>% 
+  filter(!!sym(config$obs) == 1)
+
+first_look_list <- list()
+for (f in numeric_features) {
+  form <- as.formula(paste(config$label, "~", f))
+  fit <- glm(form, data = first_look_df, family = binomial)
+  
+  first_look_list[[f]] <- broom::tidy(fit, conf.int = TRUE) %>% 
+    filter(term != "(Intercept)") %>% 
+    mutate(feature = f)
+}
+first_look_results <- bind_rows(first_look_list)
+
+write_csv(first_look_results, file.path(paths$data, "first_look_analysis.csv"))
+
+print(
+    sprintf("✓ First look analysis saved: %s", file.path(paths$data, "first_look_analysis.csv"))
+)
+
+# %% [markdown]
 # ## Save Results
 #
 # %% [code]
