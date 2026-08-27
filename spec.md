@@ -1,5 +1,7 @@
 
 ## Project
+- This is an inferential and predictive ML project predicting if an individual went on to an absorbing state (1) and didn't (0).
+- There are multiple observations per subject so we used Mixed Effects Models for the classical statistical approach and group-aware stratification in the ML script.
 - This report used a previous report about Ophthalmology as a template and agents keep trying to stick name of it all over the place. It's a template. We're not cloning the name. This project is about DCD and that should be the only name reflected in naming conventions.
 - Don't run the report preview - I usually have one going so this only invites confusion and mistakes.
 - Don't execute code unless I say to - I usually run and selectively share output.

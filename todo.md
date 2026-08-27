@@ -1,4 +1,3 @@
-# Completed Work: Data Pipeline and Modeling
 
 ## 00_process-data.py
 - [x] **Fix Concat Risk**: Used `how="diagonal"` in `pl.concat` to prevent crash on column mismatch.
@@ -24,12 +23,6 @@
 - [x] **DRY Preprocessing**: Moved shared `ColumnTransformer` logic to `utils.py`.
 
 ## Adversarial Review (Technical Audit)
-
-### Critical Wins
-- **Leakage Prevention**: Correct usage of `GroupShuffleSplit` and `StratifiedGroupKFold` with `alias_filled` ensures no patient-level leakage.
-- **Validation Rigor**: Nested CV (10-fold outer, 5-fold inner) prevents overoptimistic performance estimates.
-- **Pipeline Integrity**: Preprocessing (`IterativeImputer`, `StandardScaler`) contained within `Pipeline` prevents train-to-test leakage.
-- **DevOps**: `uv` + `justfile` + `jupytext` provides high reproducibility and git-friendly notebooks.
 
 ### Technical Debt & Risks
 - [ ] **Suboptimal Tuning Metric**: `GridSearchCV` currently uses `scoring="accuracy"`. Given class imbalance (implied by `scale_pos_weight`), should switch to `roc_auc` or `f1`.
