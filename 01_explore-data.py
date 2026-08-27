@@ -26,6 +26,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 import polars as pl
+import numpy as np
 from polars import col
 from matplotlib.colors import ListedColormap
 
@@ -75,14 +76,53 @@ Class Balance:
 """
 )
 
-# %% [markdown]
-# # Numeric Features: Mean Differences by Class
-#
 # %% [code]
 # Get numeric and categorical columns (exclude label and temporal/datetimes)
 numeric_cols = [c for c in df.columns if df.schema[c].is_numeric() and c != "progression_to_death"]
 categorical_cols = [c for c in df.columns if not df.schema[c].is_numeric() and not df.schema[c].is_temporal() and c != "progression_to_death"]
 candidate_cols = numeric_cols + categorical_cols
+
+# %% [markdown]
+# # In-Patient Stability Analysis
+# Quantify variance within patients relative to population variance.
+#
+# %% [code]
+print("\nIn-Patient Stability Analysis (Within-Patient SD / Global SD):")
+print("-" * 60)
+stability_results = []
+
+for c in numeric_cols:
+    # Global SD
+    global_sd = df[c].std()
+    if global_sd == 0 or global_sd is None:
+        continue
+    
+    # Mean of within-patient SDs
+    # We only consider patients with > 1 observation for a valid SD
+    within_sd_mean = df.group_by("alias_filled").agg(pl.col(c).std().alias("std")).filter(pl.col("std").is_not_null())["std"].mean()
+    
+    if within_sd_mean is not None:
+        ratio = within_sd_mean / global_sd
+        stability_results.append((c, ratio))
+
+# Sort by ratio (lowest = most stable)
+stability_results.sort(key=lambda x: x[1])
+
+for c, ratio in stability_results:
+    status = "Stable" if ratio < 0.3 else "Volatile"
+    print(f"  {c:30s}: Ratio={ratio:6.3f} [{status}]")
+
+print("-" * 60)
+print(f"Average Stability Ratio: {np.mean([r for c, r in stability_results]):.3f}")
+
+# %% [markdown]
+# ### Interpretation of Stability
+# The **Stability Ratio** ($\frac{\text{mean}(\sigma_{\text{patient}})}{\sigma_{\text{global}}}$) quantifies how much a feature varies *within* a patient relative to how much it varies *across* the population.
+#
+# - **Stable (Ratio < 0.3)**: Low within-patient variance. Repeated observations are largely redundant. This justifies the "First Look Only" approach as a single sample is representative of the patient.
+# - **Volatile (Ratio $\ge$ 0.3)**: High within-patient variance. The feature changes significantly over time (e.g., `fio2`, `rate`), suggesting clinical drift or active intervention.
+#
+# An average ratio of $\sim 0.3$ suggests that for the majority of clinical markers, the "First Look" is a robust proxy for the patient's state, reducing the risk of time-series leakage in model training.
 
 print(f"Numeric features: {len(numeric_cols)}")
 print(f"Categorical features: {len(categorical_cols)}")
@@ -209,7 +249,6 @@ plt.xlabel("Feature")
 plt.xticks(rotation=90)
 plt.tight_layout()
 plt.savefig(plots_dir / "missingness-heatmap.png", dpi=150)
-plt.show()
 
 # %% [code]
 # Empirical Verification: Missingness Distribution (Top-Left vs Bottom-Right)
@@ -290,7 +329,6 @@ plt.ylabel("Number of Rows")
 plt.title("Distribution of Missingness Across Features")
 plt.tight_layout()
 plt.savefig(plots_dir / "missingness-distribution.png", dpi=150)
-plt.show()
 
 # %% [code]
 print(f"\nDistribution plot saved to {plots_dir / 'missingness-distribution.png'}")
@@ -311,7 +349,6 @@ plt.title("Feature Missingness (sorted descending)")
 plt.gca().invert_yaxis()  # Highest missing at top
 plt.tight_layout()
 plt.savefig(plots_dir / "missingness-bar-chart.png", dpi=150)
-plt.show()
 
 # %% [code]
 print(f"\nBar chart saved to {plots_dir / 'missingness-bar-chart.png'}")

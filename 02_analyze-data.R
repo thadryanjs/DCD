@@ -79,11 +79,13 @@ print(
 # We impute missing values across the canonical dataset.
 #
 # %% [code]
-df_mice_with_id <- df %>% select(all_of(c(numeric_features, config$label, config$id)))
+df_mice_with_id <- df %>% select(all_of(c(numeric_features, config$label, config$id, config$obs)))
 pred <- make.predictorMatrix(df_mice_with_id)
 pred[, config$id] <- 0 
+pred[, config$obs] <- 0
 meth <- make.method(df_mice_with_id)
 meth[config$id] <- ""
+meth[config$obs] <- ""
 
 # %% [code]
 print(sprintf("Starting MICE imputation (m=%d)...", config$m_imputations))

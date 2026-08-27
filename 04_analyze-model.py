@@ -21,6 +21,7 @@
 # GLMM results from the R analysis.
 #
 # %% [code]
+import sys
 import polars as pl
 from pathlib import Path
 import matplotlib.pyplot as plt
@@ -38,6 +39,12 @@ from sklearn.compose import ColumnTransformer
 from sklearn.tree import DecisionTreeClassifier, plot_tree, export_text
 
 # %% [code]
+# Default to 'full', but allow override via command line
+prefix = "full"
+if len(sys.argv) > 1:
+    prefix = sys.argv[1]
+
+print(f"Analyzing model prefix: {prefix}")
 data_dir = Path("data/processed")
 plots_dir = Path("output")
 plots_dir.mkdir(parents=True, exist_ok=True)
@@ -66,13 +73,6 @@ print(
 
 # %% [code]
 from utils import get_preprocessor
-
-# %% [code]
-print(
-    f"Feature set identified:\n"
-    f"  Numeric: {len(numeric_cols)}\n"
-    f"  Categorical: {len(categorical_cols)}"
-)
 
 # %% [code]
 preprocessor = get_preprocessor(numeric_cols, categorical_cols)
@@ -113,14 +113,13 @@ Data split for SHAP analysis:
 import joblib
 
 # Load the final Random Forest model from artifact
-model_path = data_dir / "random_forest_model.joblib"
+model_filename = f"{prefix}_random_forest_model.joblib"
+model_path = data_dir / model_filename
 if model_path.exists():
     rf_pipeline = joblib.load(model_path)
     print(f"✓ Loaded Random Forest model from {model_path}")
 else:
-    print("ERROR: RF model artifact not found. Please run 03_model.py first.")
-    # Fallback to fitting if absolutely necessary, but we should avoid this
-    # (keeping fitting code as commented out or removed)
+    print(f"ERROR: RF model artifact {model_filename} not found. Please run 03_model.py first.")
     raise FileNotFoundError(f"Could not find {model_path}")
 
 # %% [code]
@@ -163,13 +162,12 @@ else:
 # %% [code]
 plt.figure(figsize=(12, 10))
 shap.summary_plot(shap_values_class1, x_train_transformed_df, show=False)
-plt.title("SHAP Summary: Feature Impact on Decision: Go / No Go")
+plt.title(f"SHAP Summary: Feature Impact on Decision: Go / No Go ({prefix})")
 plt.tight_layout()
-plt.savefig(plots_dir / "rf_shap_summary.png")
-plt.show()
+plt.savefig(plots_dir / f"rf_shap_summary_{prefix}.png")
 
 # %% [code]
-print(f"✓ SHAP summary plot saved to {plots_dir / 'rf_shap_summary.png'}")
+print(f"✓ SHAP summary plot saved to {plots_dir / f'rf_shap_summary_{prefix}.png'}")
 
 # %% [markdown]
 # # GLMM Alignment (Forest Plot)
@@ -222,10 +220,9 @@ if glmm_results_path.exists():
     plt.ylabel("Features", fontsize=12)
     plt.grid(True, which='both', axis='x', linestyle='--', alpha=0.5)
     plt.tight_layout()
-    plt.savefig(plots_dir / "glmm_forest_plot.png")
-    plt.show()
+    plt.savefig(plots_dir / f"glmm_forest_plot_{prefix}.png")
 
-    print(f"✓ GLMM Forest plot saved to {plots_dir / 'glmm_forest_plot.png'}")
+    print(f"✓ GLMM Forest plot saved to {plots_dir / f'glmm_forest_plot_{prefix}.png'}")
 
     print("\nTop Mixed Effects Odds Ratios:")
     print(plot_df[['feature', 'OR', 'p_value']].head(10).to_string(index=False))
@@ -271,4 +268,4 @@ for i, col in enumerate(all_feature_names):
 
 # %% [code]
 dir_df = pd.DataFrame(directions).sort_values("importance", ascending=False)
-dir_df.to_csv(plots_dir / "rf_feature_directions.csv", index=False)
+dir_df.to_csv(plots_dir / f"rf_feature_directions_{prefix}.csv", index=False)

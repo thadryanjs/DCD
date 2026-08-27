@@ -1,6 +1,5 @@
-- Remove current consensus tree (hacky)
-- [x] Add a "first look only" logistic regression model after the mixed effects model.
-    - This is the R one.
-    - Filter the first observations only and proceed as normal.
-    - This is to avoid any assumptions about when in the time series decisions need to be made.
-- Add a "first look only" to the ML section as well - make it into two second level headers in the script/report ie '## Full Dataset' and '## First Look Only'
+- [x] Remove current consensus tree (hacky)
+- [x] Add a "first look only" logistic regression model after the mixed effects model (R).
+- [x] Add a "first look only" to the ML section (Python) via `run_ml_pipeline`.
+- [x] Analyze stability of observations (Within-Patient SD / Global SD) to justify First Look.
+- [ ] Final validation of R and Python statistical alignments.
