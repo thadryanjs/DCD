@@ -20,15 +20,16 @@ analyze-data: # install R deps first
     mv 02_analyze-data.ipynb book/
     touch book/report.qmd
 
+model:
+    uv run jupytext --to notebook --execute 03_model.py
+    mv 03_model.ipynb book/
+    touch book/report.qmd
+
 analyze-model:
     uv run jupytext --to notebook --execute 04_analyze-model.py
     mv 04_analyze-model.ipynb book/
     touch book/report.qmd
 
-model:
-    uv run jupytext --to notebook --execute 03_model.py
-    mv 03_model.ipynb book/
-    touch book/report.qmd
 
 # needs fortran
 install-r-deps:

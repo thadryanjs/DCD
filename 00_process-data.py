@@ -33,10 +33,17 @@ def load_raw(filename):
 df_pos_raw = load_raw("positive-cases-Jennys-data-Edited.xlsx")
 df_neg_raw = load_raw("negative-cases-ANR-Data.xlsx")
 
+# Filter completely empty rows immediately after load to ensure raw emptiness is captured
+pos_empty = df_pos_raw.filter(pl.all_horizontal(pl.all().is_null())).height
+neg_empty = df_neg_raw.filter(pl.all_horizontal(pl.all().is_null())).height
+
+df_pos_raw = df_pos_raw.filter(~pl.all_horizontal(pl.all().is_null()))
+df_neg_raw = df_neg_raw.filter(~pl.all_horizontal(pl.all().is_null()))
+
 print(
     f"Loaded Raw Data\n"
-    f"Positive shape: {df_pos_raw.shape}\n"
-    f"Negative shape: {df_neg_raw.shape}"
+    f"Positive shape: {df_pos_raw.shape} (Dropped {pos_empty} empty rows)\n"
+    f"Negative shape: {df_neg_raw.shape} (Dropped {neg_empty} empty rows)"
 )
 
 # %% [markdown]
@@ -71,9 +78,10 @@ print(df_neg_raw.slice(14, 9))
 
 # %% [code]
 print("\nFirst 20 rows (Alias, Age, Date/Time):")
-pl.Config.set_tbl_rows(100)
-key_cols = [c for c in ["Alias", "Age", "Date/Time"] if c in df_neg_raw.columns]
-print(df_neg_raw.select(key_cols).slice(0, 20))
+# Set table rows locally for this specific debug print
+with pl.Config(tbl_rows=100):
+    key_cols = [c for c in ["Alias", "Age", "Date/Time"] if c in df_neg_raw.columns]
+    print(df_neg_raw.select(key_cols).slice(0, 20))
 
 
 # %% [markdown]
@@ -102,11 +110,11 @@ print("Before forward-fill:\n", demo)
 print("\nAfter forward-fill:\n", forward_populate_ids(demo))
 
 # %% [code]
-df_pos = forward_populate_ids(df_pos_raw)
-df_neg = forward_populate_ids(df_neg_raw)
+df_pos_raw_filled = forward_populate_ids(df_pos_raw)
+df_neg_raw_filled = forward_populate_ids(df_neg_raw)
 
 print("\nPositive Cases (IDs Forward-Filled) - First 20 rows:")
-print(df_pos.select(["alias_filled", "observation", "Age"]).head(20))
+print(df_pos_raw_filled.select(["alias_filled", "observation", "Age"]).head(20))
 
 
 # %% [markdown]
@@ -144,37 +152,12 @@ print("Before cleaning:", demo.columns)
 print("After cleaning:", clean_colnames(demo).columns)
 
 # %% [code]
-df_pos = clean_colnames(df_pos)
-df_neg = clean_colnames(df_neg)
+df_pos = clean_colnames(df_pos_raw_filled)
+df_neg = clean_colnames(df_neg_raw_filled)
 
 print("\nColumns cleaned.")
 print("Positive Cases (Clean Names) Head:")
 print(df_pos.head())
-
-
-# %% [markdown]
-# # Empty Rows
-# Check for completely empty rows (common in Excel exports).
-#
-# %% [code]
-pos_empty = df_pos.filter(pl.all_horizontal(pl.all().is_null())).height
-neg_empty = df_neg.filter(pl.all_horizontal(pl.all().is_null())).height
-
-print(
-    f"Empty rows found:\n"
-    f"Positive: {pos_empty}\n"
-    f"Negative: {neg_empty}"
-)
-
-# %% [code]
-df_pos = df_pos.filter(~pl.all_horizontal(pl.all().is_null()))
-df_neg = df_neg.filter(~pl.all_horizontal(pl.all().is_null()))
-
-print(
-    f"\nFiltered empty rows. Final Shapes:\n"
-    f"Pos: {df_pos.shape}\n"
-    f"Neg: {df_neg.shape}"
-)
 
 
 # %% [markdown]
@@ -198,16 +181,9 @@ if bmi_cols or o2_cols:
 
 
 # %% [markdown]
-# ### Observation: All Columns Are Distinct
-# The potential variations are actually different clinical measurements:
-# - `pco2` = partial pressure of CO2
-# - `po2` = partial pressure of O2  
-# - `o2_sat` = oxygen saturation
-# - `fio2` = fraction of inspired O2
-# - `baseline_vitals_o2_sat` = baseline O2 saturation reading
-# - `date_time_o2_sat__90` = timestamp when O2 sat dropped below 90%
-#
-# No semantic alignment needed.
+# ### Analysis: Semantic Alignment
+# We identify columns that are semantically identical across datasets and normalize them.
+# For example, `bmicalc` in the negative set is the same as `bmi` in the positive set.
 #
 # %% [markdown]
 # # Labeling
@@ -236,12 +212,15 @@ semantic_map = {
 }
 
 def align_semantics(df, mapping):
-    return df.rename({k: v for k, v in mapping.items() if k in df.columns})
+    """Rename columns based on semantic map if they exist."""
+    renames = {k: v for k, v in mapping.items() if k in df.columns}
+    df = df.rename(renames)
+    return df, renames
 
-df_pos = align_semantics(df_pos, semantic_map)
-df_neg = align_semantics(df_neg, semantic_map)
+df_pos, renames_pos = align_semantics(df_pos, semantic_map)
+df_neg, renames_neg = align_semantics(df_neg, semantic_map)
 
-print("Semantic alignment complete (bmicalc->bmi, o2sat->o2_sat).")
+print(f"Semantic alignment complete: {renames_pos | renames_neg}")
 
 
 # %% [code]
@@ -270,56 +249,64 @@ else:
 # %% [markdown]
 # #### Datetime Columns (String → Datetime[ms])
 # These columns contain timestamps stored as strings in the negative dataset.
-# Convert using `str.to_datetime()` with millisecond precision to match positive dataset.
+# We use typed nulls for all-null columns and `str.to_datetime()` with millisecond 
+# precision for others to match the positive dataset.
 #
 # %% [code]
-def safe_cast(df, col_name, target_type, cast_fn=None):
-    """Safely cast a column to target_type with validation."""
+def safe_cast(df, col_name, target_type, cast_fn=None, time_unit="ms"):
+    """Safely cast a column to target_type with validation.
+    Raises ValueError if the number of nulls increases (indicating parsing errors)."""
     if col_name not in df.columns:
         print(f"Warning: Column {col_name} not found. Skipping cast.")
         return df
+    
+    nulls_before = df[col_name].null_count()
     
     try:
         if cast_fn:
             df = df.with_columns(cast_fn(pl.col(col_name)))
         else:
-            df = df.with_columns(pl.col(col_name).cast(target_type))
-        print(f"✓ Cast {col_name} to {target_type}")
+            # Handle Datetime time_unit explicitly to avoid ms/us mismatches
+            if target_type == pl.Datetime:
+                df = df.with_columns(pl.col(col_name).cast(pl.Datetime(time_unit=time_unit)))
+            else:
+                df = df.with_columns(pl.col(col_name).cast(target_type))
+        
+        nulls_after = df[col_name].null_count()
+        if nulls_after > nulls_before:
+            raise ValueError(f"Null count increased from {nulls_before} to {nulls_after}")
+            
+        print(f"✓ Cast {col_name} to {target_type} (nulls: {nulls_before} -> {nulls_after})")
     except Exception as e:
         print(f"Error casting {col_name} to {target_type}: {e}")
+        raise e
     
     return df
 
 # %% [code]
 # date_time_of_declaration_tod - Time of declaration of death
-# All null in negative dataset
-print(f"BEFORE (String): {df_neg['date_time_of_declaration_tod'].head(3).to_list()} (all null)")
-df_neg = safe_cast(df_neg, "date_time_of_declaration_tod", pl.Datetime, 
-                  cast_fn=lambda c: c.str.to_datetime(time_unit="ms"))
-print(f"AFTER (Datetime): {df_neg['date_time_of_declaration_tod'].head(3).to_list()} (all null)")
+# All null in negative dataset - use typed nulls to avoid version-dependent string casts
+df_neg = df_neg.with_columns(pl.lit(None, dtype=pl.Datetime("ms")).alias("date_time_of_declaration_tod"))
+print(f"✓ Set date_time_of_declaration_tod to Datetime nulls")
 
 # %% [code]
 # date_time_of_pea_asystole - Time of PEA/asystole event
-# All null in negative dataset
-print(f"BEFORE (String): {df_neg['date_time_of_pea_asystole'].head(3).to_list()} (all null)")
-df_neg = safe_cast(df_neg, "date_time_of_pea_asystole", pl.Datetime, 
-                  cast_fn=lambda c: c.str.to_datetime(time_unit="ms"))
-print(f"AFTER (Datetime): {df_neg['date_time_of_pea_asystole'].head(3).to_list()} (all null)")
+# All null in negative dataset - use typed nulls to avoid version-dependent string casts
+df_neg = df_neg.with_columns(pl.lit(None, dtype=pl.Datetime("ms")).alias("date_time_of_pea_asystole"))
+print(f"✓ Set date_time_of_pea_asystole to Datetime nulls")
 
 # %% [code]
 # date_time_of_perfusion - Time of perfusion start
-# All null in negative dataset
-print(f"BEFORE (String): {df_neg['date_time_of_perfusion'].head(3).to_list()} (all null)")
-df_neg = safe_cast(df_neg, "date_time_of_perfusion", pl.Datetime, 
-                  cast_fn=lambda c: c.str.to_datetime(time_unit="ms"))
-print(f"AFTER (Datetime): {df_neg['date_time_of_perfusion'].head(3).to_list()} (all null)")
+# All null in negative dataset - use typed nulls to avoid version-dependent string casts
+df_neg = df_neg.with_columns(pl.lit(None, dtype=pl.Datetime("ms")).alias("date_time_of_perfusion"))
+print(f"✓ Set date_time_of_perfusion to Datetime nulls")
 
 # %% [code]
 # date_time_sbp__90 - Time when SBP dropped below 90
 # Has actual data in negative dataset
 print(f"BEFORE (String): {df_neg['date_time_sbp__90'].drop_nulls().head(3).to_list()}")
 df_neg = safe_cast(df_neg, "date_time_sbp__90", pl.Datetime, 
-                  cast_fn=lambda c: c.str.to_datetime(time_unit="ms"))
+                  cast_fn=lambda c: c.str.to_datetime(time_unit="ms", format="%Y-%m-%d %H:%M:%S"))
 print(f"AFTER (Datetime): {df_neg['date_time_sbp__90'].drop_nulls().head(3).to_list()}")
 
 
@@ -387,9 +374,19 @@ else:
 #
 # %% [code]
 print("Attempting concat...")
+# Namespace alias_filled to prevent collision between positive and negative patient IDs
+df_pos = df_pos.with_columns(("pos_" + pl.col("alias_filled").cast(pl.String)).alias("alias_filled"))
+df_neg = df_neg.with_columns(("neg_" + pl.col("alias_filled").cast(pl.String)).alias("alias_filled"))
+
 df_all = pl.concat([df_pos, df_neg], how="diagonal")
 print(f"Concatenation successful!")
 print(f"Final Dataset Shape: {df_all.shape}")
+
+# %% [code]
+# Assert observation is 1-based to ensure "first look" analysis uses the correct rows
+obs_min = df_all.select(pl.col("observation").min()).item()
+print(f"Minimum observation value: {obs_min}")
+assert obs_min == 1, f"Observation numbering must be 1-based. Found min: {obs_min}"
 
 
 # %% [markdown]
@@ -398,7 +395,7 @@ print(f"Final Dataset Shape: {df_all.shape}")
 #
 # %% [code]
 processed_dir = Path("data/processed")
-processed_dir.mkdir(exist_ok=True)
+processed_dir.mkdir(parents=True, exist_ok=True)
 
 output_path = processed_dir / "combined-dataset.parquet"
 df_all.write_parquet(output_path)
@@ -409,4 +406,4 @@ print(f"Columns: {df_all.columns}")
 
 # %% [markdown]
 # ## End of Data Processing
-# Final verification (class distribution, feature summary) moved to `01_analysis.py`.
+# Final verification (class distribution, feature summary) moved to `01_explore-data.py`.

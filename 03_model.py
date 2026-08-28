@@ -41,17 +41,13 @@ import pandas as pd
 import json
 import joblib
 
-from sklearn.model_selection import cross_validate, train_test_split, StratifiedGroupKFold, GroupShuffleSplit, GridSearchCV
-from sklearn.preprocessing import StandardScaler
-from sklearn.experimental import enable_iterative_imputer
-from sklearn.impute import IterativeImputer, SimpleImputer
+from sklearn.model_selection import StratifiedGroupKFold, GroupShuffleSplit, GridSearchCV
 from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import make_scorer, precision_score, recall_score, f1_score, accuracy_score, roc_auc_score
-from sklearn.compose import ColumnTransformer
-from sklearn.preprocessing import OneHotEncoder
+from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score, roc_auc_score
 from xgboost import XGBClassifier
+from utils import get_preprocessor
 
 # %% [code]
 data_dir = Path("data/processed")
@@ -73,15 +69,10 @@ print(f"Loaded model-ready dataset: {df.shape}")
 # %% [code]
 id_cols = ["alias", "alias_filled", "observation"]
 numeric_cols = [c for c in df.columns if df.schema[c].is_numeric() and c != "progression_to_death" and c not in id_cols]
-categorical_cols = [c for c in df.columns if not df.schema[c].is_numeric() and c != "progression_to_death"]
+categorical_cols = [c for c in df.columns if not df.schema[c].is_numeric() and c != "progression_to_death" and c not in id_cols]
 
 # %% [code]
-from utils import get_preprocessor
-
-# %% [code]
-preprocessor = get_preprocessor(numeric_cols, categorical_cols)
-
-# %% [code]
+# Preprocessor is now built inside run_ml_pipeline to avoid global scope issues
 print(
     f"Feature set identified:\n"
     f"  Numeric: {len(numeric_cols)}\n"
@@ -93,9 +84,12 @@ print(
 # We wrap the entire training and evaluation process to compare "Full Dataset" vs "First Look Only".
 #
 # %% [code]
-def run_ml_pipeline(df, prefix="full"):
-    print(f"\n{'='*40}\nRunning Pipeline: {prefix}\n{'='*40}")
+def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
+    print(f"Running Pipeline: {prefix}")
     
+    # Build preprocessor inside function to ensure consistency with arguments
+    preprocessor = get_preprocessor(numeric_cols, categorical_cols)
+
     # Group-Aware Train/Test Split
     groups = df["alias_filled"].to_numpy()
     x_df = df.select(numeric_cols + categorical_cols).to_pandas()
@@ -119,7 +113,7 @@ def run_ml_pipeline(df, prefix="full"):
     # Model Architectures & Hyperparameter Grids
     pos_count = (y_train == 1).sum()
     neg_count = (y_train == 0).sum()
-    spw = neg_count / pos_count if pos_count > 0 else 1
+    spw = float(neg_count / pos_count) if pos_count > 0 else 1.0
 
     pipelines = {
         "Logistic Regression": Pipeline([
@@ -157,30 +151,24 @@ def run_ml_pipeline(df, prefix="full"):
     kf_outer = StratifiedGroupKFold(n_splits=10, shuffle=True, random_state=8675309)
     kf_inner = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=8675309)
 
-    scoring = {
-        "accuracy": "accuracy",
-        "precision": make_scorer(precision_score),
-        "recall": make_scorer(recall_score),
-        "f1": make_scorer(f1_score),
-        "auc": "roc_auc",
-    }
+    metrics_to_track = ["accuracy", "precision", "recall", "f1", "auc"]
 
     all_cv_results = []
     
     for name in pipelines.keys():
         print(f"\nEvaluating Model: {name} ({prefix})")
-        outer_metrics = {m: [] for m in scoring.keys()}
+        outer_metrics = {m: [] for m in metrics_to_track}
         
-        for fold_idx, (train_idx, test_idx) in enumerate(kf_outer.split(x_train, y_train, groups=groups_train)):
-            x_tr_out, x_te_out = x_train.iloc[train_idx], x_train.iloc[test_idx]
-            y_tr_out, y_te_out = y_train[train_idx], y_train[test_idx]
-            gr_tr_out = groups_train[train_idx]
+        for fold_idx, (outer_train_idx, outer_test_idx) in enumerate(kf_outer.split(x_train, y_train, groups=groups_train)):
+            x_tr_out, x_te_out = x_train.iloc[outer_train_idx], x_train.iloc[outer_test_idx]
+            y_tr_out, y_te_out = y_train[outer_train_idx], y_train[outer_test_idx]
+            gr_tr_out = groups_train[outer_train_idx]
             
             grid = GridSearchCV(
                 estimator=pipelines[name],
                 param_grid=param_grids[name],
                 cv=kf_inner,
-                scoring="accuracy",
+                scoring="roc_auc",
                 n_jobs=-1
             )
             
@@ -189,12 +177,23 @@ def run_ml_pipeline(df, prefix="full"):
             y_pred = best_model.predict(x_te_out)
             y_prob = best_model.predict_proba(x_te_out)[:, 1]
             
+            # Compute metrics individually to prevent AUC failure from zeroing others
+            acc = accuracy_score(y_te_out, y_pred)
+            prec = precision_score(y_te_out, y_pred, zero_division=0)
+            rec = recall_score(y_te_out, y_pred, zero_division=0)
+            f1 = f1_score(y_te_out, y_pred, zero_division=0)
+            
+            try:
+                auc = roc_auc_score(y_te_out, y_prob)
+            except ValueError:
+                auc = np.nan
+            
             fold_results = {
-                "accuracy": accuracy_score(y_te_out, y_pred),
-                "precision": precision_score(y_te_out, y_pred, zero_division=0),
-                "recall": recall_score(y_te_out, y_pred, zero_division=0),
-                "f1": f1_score(y_te_out, y_pred, zero_division=0),
-                "auc": roc_auc_score(y_te_out, y_prob),
+                "accuracy": acc,
+                "precision": prec,
+                "recall": rec,
+                "f1": f1,
+                "auc": auc,
             }
             
             for m, val in fold_results.items():
@@ -208,8 +207,10 @@ def run_ml_pipeline(df, prefix="full"):
 
         print(f"\nResults for {name} ({prefix}):")
         for m, scores in outer_metrics.items():
-            mean_s, std_s = np.mean(scores), np.std(scores)
-            print(f"  {m:12s}: {mean_s:.3f} (+/- {std_s * 2:.3f})")
+            mean_s = np.nanmean(scores)
+            std_s = np.nanstd(scores)
+            count = np.count_nonzero(~np.isnan(scores))
+            print(f"  {m:12s}: {mean_s:.3f} (+/- {std_s * 2:.3f}) [n={count}]")
 
     cv_results_df = pl.DataFrame(all_cv_results)
     cv_results_path = plots_dir / f"cv_metrics_per_fold_{prefix}.csv"
@@ -221,14 +222,13 @@ def run_ml_pipeline(df, prefix="full"):
         estimator=pipelines["Random Forest"],
         param_grid=param_grids["Random Forest"],
         cv=kf_inner,
-        scoring="accuracy",
+        scoring="roc_auc",
         n_jobs=-1
     )
     rf_grid.fit(x_train, y_train, groups=groups_train)
     best_rf = rf_grid.best_estimator_
 
-    cat_features = best_rf.named_steps['pre'].transformers_[1][1].get_feature_names_out(categorical_cols)
-    all_feature_names = numeric_cols + list(cat_features)
+    all_feature_names = best_rf.named_steps['pre'].get_feature_names_out()
 
     importances = best_rf.named_steps['clf'].feature_importances_
     feat_imp_df = pd.DataFrame({'feature': all_feature_names, 'importance': importances})
@@ -250,7 +250,7 @@ def run_ml_pipeline(df, prefix="full"):
             estimator=pipelines[name],
             param_grid=param_grids[name],
             cv=kf_inner,
-            scoring="accuracy",
+            scoring="roc_auc",
             n_jobs=-1
         )
         grid.fit(x_train, y_train, groups=groups_train)
@@ -262,19 +262,21 @@ def run_ml_pipeline(df, prefix="full"):
         joblib.dump(best_model, data_dir / model_filename)
         
         y_pred = best_model.predict(x_test)
+        y_prob = best_model.predict_proba(x_test)[:, 1]
         print(
             f"Test Metrics for {name} ({prefix}):\n"
             f"  Accuracy  : {accuracy_score(y_test, y_pred):.3f}\n"
-            f"  Precision : {precision_score(y_test, y_pred):.3f}\n"
-            f"  Recall    : {recall_score(y_test, y_pred):.3f}\n"
-            f"  F1 Score  : {f1_score(y_test, y_pred):.3f}"
+            f"  Precision : {precision_score(y_test, y_pred, zero_division=0):.3f}\n"
+            f"  Recall    : {recall_score(y_test, y_pred, zero_division=0):.3f}\n"
+            f"  F1 Score  : {f1_score(y_test, y_pred, zero_division=0):.3f}\n"
+            f"  AUC       : {roc_auc_score(y_test, y_prob):.3f}"
         )
 
     with open(data_dir / f"model_params_{prefix}.json", "w") as f:
         json.dump(model_final_params, f)
 
     # CV Performance Visualization
-    results_df = pl.read_csv(cv_results_path).to_pandas()
+    results_df = cv_results_df.to_pandas()
     for metric in ["accuracy", "auc"]:
         m_df = results_df[results_df["metric"] == metric]
         plt.figure(figsize=(10, 6))
@@ -293,7 +295,7 @@ def run_ml_pipeline(df, prefix="full"):
 # Evaluate models using all available observations.
 #
 # %% [code]
-run_ml_pipeline(df, prefix="full")
+run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full")
 
 # %% [markdown]
 # ## First Look Only Analysis
@@ -301,4 +303,4 @@ run_ml_pipeline(df, prefix="full")
 #
 # %% [code]
 df_first_look = df.filter(pl.col("observation") == 1)
-run_ml_pipeline(df_first_look, prefix="first_look")
+run_ml_pipeline(df_first_look, numeric_cols, categorical_cols, prefix="first_look")

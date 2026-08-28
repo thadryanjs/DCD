@@ -1,5 +1,4 @@
-import polars as pl
-from pathlib import Path
+from sklearn.experimental import enable_iterative_imputer  # noqa: F401
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.impute import IterativeImputer, SimpleImputer

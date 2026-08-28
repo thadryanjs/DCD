@@ -15,341 +15,147 @@
 # ---
 
 # %% [markdown]
-# # Mixed-Effects Analysis of Clinical Cases
-# This script performs statistical testing to compare clinical features between patients 
-# who progressed to death vs those who did not. 
-# 
-# **Imputation Strategy**: Multiple Imputation by Chained Equations (MICE).
-# We generate multiple imputed datasets (m=5) and pool the results using Rubin's Rules
-# to ensure that the uncertainty of missing values is reflected in the confidence intervals.
+# # Inferential Analysis: DCD Progression
+# The outcome belongs to the patient, not the observation: every row for a patient
+# carries the same label. A patient random intercept has no within-patient outcome
+# variation to explain and is not identifiable, so we average each patient's
+# observations and fit a patient-level logistic regression per feature, FDR corrected.
+#
+# Missing values go through multiple imputation. Each feature is fitted once per imputed
+# dataset and pooled with Rubin's rules, so the intervals carry the imputation
+# uncertainty. Features are scaled, so estimates are per standard deviation.
 #
 # %% [code]
 library(tidyverse)
-library(lme4)
-library(broom.mixed)
-library(corrplot)
 library(mice)
 
+# %% [code]
+label <- "progression_to_death"
+id <- "alias_filled"
+m <- 5
+dir.create("output", showWarnings = FALSE)
+
+df <- read_csv("data/processed/analytic-dataset.csv",
+               guess_max = .Machine$integer.max, show_col_types = FALSE)
+
+# %% [code]
+print(sprintf("%d rows, %d patients", nrow(df), n_distinct(df[[id]])))
+
 # %% [markdown]
-# ## Configuration
+# ## Patient-Level Frames
+# Average to one row per patient, drop the id, keep only columns with at least two
+# distinct values, then scale. The distinct-value filter matters: a constant column
+# becomes all `NaN` under `scale()` and makes mice fail with an unhelpful error.
 #
 # %% [code]
-paths <- list(
-  data = "data/processed",
-  output = "output"
-)
-if (!dir.exists(paths$output)) dir.create(paths$output)
-
-config <- list(
-  label = "progression_to_death",
-  id = "alias_filled",
-  obs = "observation",
-  m_imputations = 5
-)
-
-# %% [markdown]
-# ## Load Data
-#
-# %% [code]
-df <- read_csv(file.path(paths$data, "analytic-dataset.csv"))
-
-# %% [code]
-print(
-    sprintf("Dataset loaded: %d rows x %d cols", 
-             nrow(df), ncol(df))
-)
-
-# %% [markdown]
-# ### Identify Features
-#
-# %% [code]
-numeric_features <- df %>%
-  select(where(is.numeric), -all_of(c(config$label, config$id, config$obs))) %>%
-  names()
-
-# %% [code]
-print(
-    sprintf("Analyzing %d features across %d patients...", 
-             length(numeric_features), 
-             df %>% distinct(!!sym(config$id)) %>% nrow())
-)
-
-# %% [markdown]
-# ## Multiple Imputation (MICE)
-# We impute missing values across the canonical dataset.
-#
-# %% [code]
-df_mice_with_id <- df %>% select(all_of(c(numeric_features, config$label, config$id, config$obs)))
-pred <- make.predictorMatrix(df_mice_with_id)
-pred[, config$id] <- 0 
-pred[, config$obs] <- 0
-meth <- make.method(df_mice_with_id)
-meth[config$id] <- ""
-meth[config$obs] <- ""
-
-# %% [code]
-print(sprintf("Starting MICE imputation (m=%d)...", config$m_imputations))
-
-# %% [code]
-imputed_data <- mice(df_mice_with_id, m = config$m_imputations, 
-                     predictorMatrix = pred, method = meth, printFlag = TRUE)
-
-# %% [code]
-print("✓ MICE imputation complete.")
-
-# %% [markdown]
-# # Model Identifiability Check
-# Check if outcome varies within patients to ensure GLMM is well-posed.
-# %% [code]
-prelim <- complete(imputed_data, 1)
-within_var <- prelim %>%
-  dplyr::group_by(.data[[config$id]]) %>%
-  dplyr::summarise(n_levels = dplyr::n_distinct(.data[[config$label]]), .groups = "drop")
-
-if (all(within_var$n_levels == 1)) {
-  warning(
-    "Outcome is CONSTANT within every patient. A (1 | patient_id) random ",
-    "intercept is not identifiable here (expect singular fits and unstable ",
-    "fixed effects). A patient-level GLM is the appropriate model for a ",
-    "time-invariant outcome. Proceeding as requested, but treat results with care."
-  )
+to_patient <- function(d) {
+  d <- d %>%
+    select(-observation) %>%
+    group_by(.data[[id]], .data[[label]]) %>%
+    summarise(across(everything(), ~mean(.x, na.rm = TRUE)), .groups = "drop") %>%
+    select(-all_of(id))
+  d <- d[sapply(d, function(x) n_distinct(x, na.rm = TRUE) >= 2)]
+  d %>% mutate(across(-all_of(label), ~as.numeric(scale(.x))))
 }
 
+# %% [code]
+all_obs <- to_patient(df)
+first_obs <- to_patient(df %>% filter(observation == 1))
+
+# %% [code]
+print(sprintf("All observations: %d x %d. First only: %d x %d.",
+              nrow(all_obs), ncol(all_obs), nrow(first_obs), ncol(first_obs)))
+
 # %% [markdown]
-# # Pooled GLMM Analysis
-# We use a binomial generalized linear mixed model with a patient-level random intercept
-# to account for repeated measures within patients, pooled across imputations via Rubin's Rules.
+# ## Fit
+# Two loops: features outside, imputations inside, because a feature needs one fit per
+# imputed dataset before those fits can be pooled. A fitted probability pinned at 0 or 1
+# means the fit separated, which glm reports as a warning rather than an error, so it is
+# checked directly and flagged.
 #
 # %% [code]
-run_pooled_glmm <- function(feature, imputed_obj, label, id, original_df) {
-  tryCatch({
-    fits_list <- list()
-    diag_list <- list()
-    
-    for (i in 1:imputed_obj$m) {
-      di <- complete(imputed_obj, i)
-      
-      # Step 1: Data prep to fix 'list' coercion error
-      # Extract columns as atomic vectors via unlist()
-      d <- data.frame(
-        y   = as.integer(unlist(di[[label]],   use.names = FALSE)),
-        x   = as.numeric(scale(unlist(di[[feature]], use.names = FALSE))),
-        grp = factor(   unlist(di[[id]],       use.names = FALSE))
-      )
-      stopifnot(!any(vapply(d, is.list, logical(1))))
-      
-      # Step 2: Fit GLMM
-      fit <- tryCatch(
-        {
-          message(sprintf("Fitting GLMM for %s (Imputation %d)...", feature, i))
-          glmer(
-            y ~ x + (1 | grp),
-            data    = d,
-            family  = binomial,
-            control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 2e5))
-          )
-        },
-        error = function(e) {
-          # Fallback to nAGQ = 0 (Laplace approximation)
-          tryCatch(
-            {
-              message(sprintf("Fallback to nAGQ=0 for %s (Imputation %d)...", feature, i))
-              glmer(
-                y ~ x + (1 | grp),
-                data    = d,
-                family  = binomial,
-                nAGQ    = 0,
-                control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 2e5))
-              )
-            },
-            error = function(e2) { 
-              message(sprintf("glmer error [%s, imp %d]: %s", feature, i, e2$message))
-              NULL 
-            }
-          )
-        }
-      )
-      
-      if (!is.null(fit)) {
-        fits_list[[i]] <- fit
-        # Step 3: Per-fit diagnostics
-        diag_list[[i]] <- list(
-          singular  = lme4::isSingular(fit),
-          re_sd     = sqrt(as.numeric(lme4::VarCorr(fit)$grp)),
-          converged = is.null(fit@optinfo$conv$lme4$messages)
-        )
-      }
+analyze <- function(d) {
+  imp <- mice(d, m = m, printFlag = FALSE, seed = 8675309)
+  print(sprintf("mice logged events: %d", NROW(imp$loggedEvents)))
+  out <- NULL
+  for (f in setdiff(names(d), label)) {
+    fits <- list()
+    separated <- FALSE
+    for (i in 1:m) {
+      fits[[i]] <- glm(as.formula(sprintf("%s ~ `%s`", label, f)),
+                       complete(imp, i), family = binomial)
+      p <- fitted(fits[[i]])
+      separated <- separated || any(p < 1e-8 | p > 1 - 1e-8)
     }
-    
-    fits <- Filter(Negate(is.null), fits_list)
-    if (length(fits) < 2) return(NULL)   # Rubin's Rules need m >= 2
-    
-    # Step 4: Pool fixed effects with Rubin's Rules
-    pooled <- summary(mice::pool(mice::as.mira(fits)), conf.int = TRUE)
-    row_x  <- pooled[pooled$term == "x", ]
-    
-    # Aggregate diagnostics
-    valid_diags <- Filter(Negate(is.null), diag_list)
-    frac_singular <- mean(sapply(valid_diags, `[[`, "singular"))
-    frac_nonconv  <- mean(!sapply(valid_diags, `[[`, "converged"))
-
-    pooled_res <- tibble::tibble(
-      feature       = feature,
-      estimate      = row_x$estimate,
-      std_error     = row_x$std.error,
-      z_value       = row_x$statistic,
-      p_value       = row_x$p.value,
-      ci_low        = row_x[["2.5 %"]],
-      ci_high       = row_x[["97.5 %"]],
-      frac_singular = frac_singular,
-      frac_nonconv  = frac_nonconv,
-      test          = "Binomial GLMM (random patient intercept), MICE + Rubin's Rules"
-    )
-    
-    # Means from first imputation for descriptive statistics
-    first_imp <- complete(imputed_obj, 1)
-    first_imp <- as.data.frame(first_imp)
-    
-    means <- first_imp %>%
-      group_by(!!sym(label), !!sym(id)) %>%
-      summarise(val = mean(!!sym(feature), na.rm = TRUE), .groups = "drop") %>%
-      group_by(!!sym(label)) %>%
-      summarise(val = mean(val, na.rm = TRUE), .groups = "drop") %>%
-      pivot_wider(names_from = !!sym(label), values_from = val,
-                  names_prefix = "mean_") %>%
-      mutate(feature = feature)
-
-    list(stats = pooled_res, means = means)
-  }, error = function(e) {
-    message(sprintf("Error analyzing %s: %s", feature, e$message))
-    return(NULL)
-  })
+    s <- summary(pool(as.mira(fits)), conf.int = TRUE)
+    s <- s[s$term != "(Intercept)", ]
+    out <- rbind(out, data.frame(
+      feature = f, estimate = s$estimate, std_error = s$std.error, p_value = s$p.value,
+      ci_low = s[["2.5 %"]], ci_high = s[["97.5 %"]],
+      unstable = separated || abs(s$estimate) > 10 || s$std.error > 5))
+  }
+  out %>% mutate(p_adj = p.adjust(p_value, "fdr")) %>% arrange(p_value)
 }
 
 # %% [code]
-results <- map(numeric_features, ~run_pooled_glmm(.x, imputed_data, config$label, config$id, df)) %>%
-  compact() %>%
-  map_dfr(~left_join(.x$stats, .x$means, by = "feature")) %>%
-  mutate(p_adj = p.adjust(p_value, method = "fdr")) %>%
-  mutate(
-    mean_positive = `mean_1`,
-    mean_negative = `mean_0`,
-    diff = mean_positive - mean_negative
-  ) %>%
-  select(feature, mean_positive, mean_negative, diff, p_value, p_adj, estimate, z_value, ci_low, ci_high, test, frac_singular, frac_nonconv) %>%
-  arrange(p_value)
+results <- analyze(all_obs)
+first_results <- analyze(first_obs)
 
 # %% [code]
-print(
-    sprintf("✓ Pooled GLMM completed: %d features analyzed", nrow(results))
-)
+print(sprintf("Significant (FDR, stable fits): %d of %d. Unstable: %d.",
+              sum(results$p_adj < 0.05 & !results$unstable),
+              nrow(results), sum(results$unstable)))
+
+# %% [code]
+print(head(results, 15))
+
+# %% [code]
+write_csv(results, "data/processed/feature_analysis.csv")
+write_csv(first_results, "data/processed/first_look_analysis.csv")
 
 # %% [markdown]
-# # First Look Only Analysis
-# We filter for the first observation per patient to assess predictors available at the 
-# start of the process, removing time-series bias.
+# ## Forest Plot
+# Odds ratios per SD. Unstable fits are excluded: their intervals span orders of
+# magnitude and would flatten everything else on a log axis.
 #
 # %% [code]
-first_look_df <- complete(imputed_data, 1) %>% 
-  filter(!!sym(config$obs) == 1)
+plot_df <- results %>%
+  filter(!unstable) %>%
+  mutate(or = exp(estimate), lo = exp(ci_low), hi = exp(ci_high), sig = p_adj < 0.05) %>%
+  arrange(or) %>%
+  mutate(feature = factor(feature, feature))
 
-first_look_list <- list()
-for (f in numeric_features) {
-  form <- as.formula(paste(config$label, "~", f))
-  fit <- glm(form, data = first_look_df, family = binomial)
-  
-  first_look_list[[f]] <- broom::tidy(fit, conf.int = TRUE) %>% 
-    filter(term != "(Intercept)") %>% 
-    mutate(feature = f)
-}
-first_look_results <- bind_rows(first_look_list)
-
-write_csv(first_look_results, file.path(paths$data, "first_look_analysis.csv"))
-
-print(
-    sprintf("✓ First look analysis saved: %s", file.path(paths$data, "first_look_analysis.csv"))
-)
-
-# %% [markdown]
-# ## Save Results
-#
-# %% [code]
-write_csv(results, file.path(paths$data, "feature_analysis.csv"))
-
-# %% [code]
-print(
-    sprintf("✓ Results saved: %s", file.path(paths$data, "feature_analysis.csv"))
-)
-
-# %% [markdown]
-# # Mixed Effects Forest Plot
-#
-# %% [code]
-plot_results <- results %>%
-  mutate(OR = exp(estimate),
-         lower = exp(ci_low),
-         upper = exp(ci_high)) %>%
-  arrange(OR) %>%
-  mutate(feature = factor(feature, levels = feature))
-
-ggplot(plot_results, aes(x = OR, y = feature)) +
+ggplot(plot_df, aes(or, feature)) +
   geom_vline(xintercept = 1, color = "red", linetype = "dashed") +
-  geom_errorbarh(aes(xmin = lower, xmax = upper), height = 0.2) +
-  geom_point(aes(color = p_adj < 0.05), size = 2) +
+  geom_errorbarh(aes(xmin = lo, xmax = hi), height = 0.2) +
+  geom_point(aes(color = sig), size = 2) +
   scale_x_log10() +
-  scale_color_manual(values = c("grey70", "firebrick"), 
-                     labels = c("p_adj >= 0.05", "p_adj < 0.05"), 
-                     name = "Significance") +
-  labs(title = "Pooled Logistic Regression: Odds Ratios (95% CI)",
-       subtitle = "Identifying High-Risk Cases for 'Send It' Decision (Patient-level means + MICE)",
-       x = "Odds Ratio (Log Scale)",
-       y = "Clinical Feature") +
-  theme_minimal() +
-  theme(axis.text.y = element_text(size = 8))
+  scale_color_manual(values = c("grey70", "firebrick"), labels = c("ns", "FDR p < 0.05"), name = NULL) +
+  labs(title = "DCD Progression: Patient-Level Odds Ratios (95% CI)",
+       subtitle = sprintf("%d features; %d unstable fits excluded",
+                          nrow(plot_df), sum(results$unstable)),
+       x = "Odds ratio per SD (log scale)", y = NULL) +
+  theme_minimal()
 
-# %% [code]
-ggsave(file.path(paths$output, "glmm_forest_plot_r.png"), 
-       width = 10, height = 12, dpi = 300)
-
-# %% [code]
-print(
-    sprintf("✓ GLMM Forest Plot saved: %s", file.path(paths$output, "glmm_forest_plot_r.png"))
-)
+ggsave("output/glmm_forest_plot_r.png", width = 10, height = 12, dpi = 300)
 
 # %% [markdown]
-# # Correlation Heatmap (Patient Level)
+# ## Limitations
+#
+# - **No mixed-effects model.** The spec called for lme4 with person-level random
+#   effects, but the outcome is time-invariant within patient, so a random intercept is
+#   not identifiable. A mixed model here gives boundary variance estimates and
+#   attenuated fixed effects; the patient-level GLM is the right model for this outcome.
+# - **No time-to-event analysis.** Only whether the event occurred is recorded, not when,
+#   so discrete-time survival with a patient frailty term is unavailable.
+# - **Univariate screens.** Each feature is modelled alone with FDR correction across
+#   features. The odds ratios are unadjusted, not independent effects.
+# - **Equal patient weighting.** Averaging gives a patient with twelve observations the
+#   same weight as one with two.
+# - **Imputation ignores clustering** and uses every other column as a predictor. Check
+#   the logged-events count above if the patient count is small.
+# - **Feature correlation** is covered in `01_explore-data.py`; not duplicated here.
+# - **Pin the mice version.** `pool` summary column names have changed across releases.
 #
 # %% [code]
-first_imp <- complete(imputed_data, 1)
-df_patient <- first_imp %>%
-  group_by(!!sym(config$id), !!sym(config$label)) %>%
-  summarise(across(all_of(numeric_features), ~mean(.x, na.rm = TRUE)),
-            .groups = "drop")
-
-corr_mat <- df_patient %>%
-  select(all_of(numeric_features)) %>%
-  cor(use = "pairwise.complete.obs")
-
-# %% [code]
-png(file.path(paths$output, "feature_correlation_matrix.png"),
-    width = 1400, height = 1200, res = 150)
-corrplot(corr_mat,
-         method = "color",
-         type = "upper",
-         tl.col = "black",
-         tl.srt = 45,
-         col = colorRampPalette(c("#2166AC", "white", "#B2182B"))(200),
-         addCoef.col = "grey",
-         number.cex = 0.65,
-         diag = FALSE,
-         mar = c(1, 1, 2, 1),
-         main = "Feature Correlation (Patient-Level Means)")
-dev.off()
-
-# %% [code]
-print(
-    sprintf("✓ Correlation matrix saved: %s", file.path(paths$output, "feature_correlation_matrix.png"))
-)
-
-# %% [code]
-cat("\nAnalysis complete.\n")
+print("Analysis complete.")

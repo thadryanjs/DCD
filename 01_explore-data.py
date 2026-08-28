@@ -29,10 +29,9 @@ import polars as pl
 import numpy as np
 from polars import col
 from matplotlib.colors import ListedColormap
-
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.metrics import accuracy_score
 from sklearn.preprocessing import LabelEncoder
+from sklearn.model_selection import GroupShuffleSplit
+from sklearn.feature_selection import mutual_info_classif
 
 # %% [code]
 data_dir = Path("data")
@@ -58,6 +57,7 @@ print(f"Dataset loaded: {df.shape}")
 print("Observation-level Distribution:")
 print(df.group_by("progression_to_death").agg(pl.len().alias("count")).sort("progression_to_death"))
 
+# %% [code]
 print("\nPatient-level Distribution:")
 unique_patients = df["alias_filled"].n_unique()
 avg_obs = df.height / unique_patients
@@ -88,7 +88,6 @@ candidate_cols = numeric_cols + categorical_cols
 #
 # %% [code]
 print("\nIn-Patient Stability Analysis (Within-Patient SD / Global SD):")
-print("-" * 60)
 stability_results = []
 
 for c in numeric_cols:
@@ -112,7 +111,6 @@ for c, ratio in stability_results:
     status = "Stable" if ratio < 0.3 else "Volatile"
     print(f"  {c:30s}: Ratio={ratio:6.3f} [{status}]")
 
-print("-" * 60)
 print(f"Average Stability Ratio: {np.mean([r for c, r in stability_results]):.3f}")
 
 # %% [markdown]
@@ -122,8 +120,9 @@ print(f"Average Stability Ratio: {np.mean([r for c, r in stability_results]):.3f
 # - **Stable (Ratio < 0.3)**: Low within-patient variance. Repeated observations are largely redundant. This justifies the "First Look Only" approach as a single sample is representative of the patient.
 # - **Volatile (Ratio $\ge$ 0.3)**: High within-patient variance. The feature changes significantly over time (e.g., `fio2`, `rate`), suggesting clinical drift or active intervention.
 #
-# An average ratio of $\sim 0.3$ suggests that for the majority of clinical markers, the "First Look" is a robust proxy for the patient's state, reducing the risk of time-series leakage in model training.
-
+# A target average ratio of $\sim 0.3$ is used as a heuristic to determine if the "First Look" is a robust proxy for the patient's state, reducing the risk of time-series leakage in model training.
+#
+# %% [code]
 print(f"Numeric features: {len(numeric_cols)}")
 print(f"Categorical features: {len(categorical_cols)}")
 print(f"Total candidate features: {len(candidate_cols)}")
@@ -168,14 +167,12 @@ missing_stats.sort(key=lambda x: x[2], reverse=True)
 
 # %% [code]
 print("Missingness by Column (sorted by % missing):")
-print("-" * 60)
 for c, count, pct in missing_stats:
     bar = "█" * int(pct / 2) + "░" * (50 - int(pct / 2))
     print(f"{c:30s} |{bar}| {count:4d} ({pct:5.1f}%)")
 
 # %% [code]
 print("\nMissingness Comparison: Positive vs Negative Class")
-print("=" * 70)
 
 # Single scan for all missingness counts by class
 missing_by_class = df.group_by("progression_to_death").agg([
@@ -228,7 +225,7 @@ if subset_mask.height * len(miss_cols) > 10_000_000:
     sample_size = 10_000_000 // len(miss_cols)
     print(f"WARNING: Dataset too large for heatmap ({subset_mask.height * len(miss_cols)} elements).")
     print(f"Downsampling to {sample_size} rows for visualization.")
-    subset_mask = subset_mask.sample(n=sample_size)
+    subset_mask = subset_mask.sample(n=sample_size, random_state=8675309)
 
 missing_matrix = subset_mask.to_numpy()
 
@@ -284,43 +281,16 @@ last_20p_nulls = df.slice(df.height - row_chunk).select(numeric_cols).null_count
 print(f"\nFirst 20% of rows null pct: {first_20p_nulls / (row_chunk * len(numeric_cols)):.4f}")
 print(f"Last 20% of rows null pct: {last_20p_nulls / (row_chunk * len(numeric_cols)):.4f}")
 
-# %% [code]
-# Filter by high-completeness threshold (90% present / 10% missing)
-completeness_threshold = 0.90
-completeness_stats = df.select([
-    (col(c).count() / pl.len()).alias(c)
-    for c in numeric_cols
-])
-
-comp_map = {c: val for c, val in zip(numeric_cols, completeness_stats.row(0))}
-high_comp_cols = [c for c, val in comp_map.items() if val >= completeness_threshold]
-
-# %% [code]
-print(f"Completeness threshold: {completeness_threshold*100:.0f}%")
-print(f"Features passing threshold: {len(high_comp_cols)} / {len(numeric_cols)}")
-print("\nRemaining features:")
-for i, c in enumerate(high_comp_cols, 1):
-    print(f"  {i:2d}. {c} ({comp_map[c]:.1%})")
-
-# %% [code]
-# Create and save analytic dataset
-analytic_cols = [c for c in high_comp_cols if c != "alias"]
-df_analytic = df.select(analytic_cols + ["progression_to_death"])
-# Removed early save to analytic-dataset.parquet to prevent leakage in R analysis
-print(f"\nInitial missingness filter applied. Shape: {df_analytic.shape}")
-
-# %% [code]
-missing_per_row = missing_mask.select([pl.sum_horizontal([col(f"{c}_miss") for c in numeric_cols]).alias("missing_count")])
-missing_dist = missing_per_row.group_by("missing_count").agg(pl.len().alias("row_count")).sort("missing_count")
-
-# %% [code]
-print("\nRows by Number of Missing Features:")
-print(missing_dist)
 
 # %% [code]
 # Ensure plots directory exists
 plots_dir = Path("output")
 plots_dir.mkdir(parents=True, exist_ok=True)
+
+# Calculate distribution of missingness across features
+missing_per_row = missing_mask.select(miss_cols).sum_horizontal()
+missing_dist = missing_per_row.value_counts().sort("sum").to_pandas()
+missing_dist.columns = ["missing_count", "row_count"]
 
 plt.figure(figsize=(10, 5))
 plt.bar(missing_dist["missing_count"], missing_dist["row_count"], color="steelblue")
@@ -355,7 +325,7 @@ print(f"\nBar chart saved to {plots_dir / 'missingness-bar-chart.png'}")
 
 # %% [markdown]
 # # Feature Selection
-# Filter by missingness, low-variance, and high correlation.
+# Filter by missingness and low-variance; identify high correlations.
 #
 # %% [code]
 # 1. Define Exclusion Lists
@@ -367,6 +337,11 @@ leak_exclusion_list = [
     "warm_ischemic_time_agonal_phase_to_cooling",
     "did_patient_expire_within_timeframe"
 ]
+
+# Note: The ≤10% missingness filter also performs load-bearing leakage control. 
+# Any column fully populated in one class and fully null in the other is a perfect 
+# label proxy; these are caught by the threshold. If class balance skews significantly, 
+# a perfect leak could pass this filter.
 
 id_exclusion_list = [
     "alias",
@@ -427,6 +402,7 @@ print(var_df)
 
 # %% [code]
 # Filter low-variance numeric features (threshold: 0.01)
+# Note: threshold is applied to raw variance; it is unit-dependent.
 variance_threshold = 0.01
 high_var_numeric = var_df.filter(col("variance") > variance_threshold).get_column("feature").to_list()
 
@@ -455,7 +431,7 @@ if len(numeric_high_var) > 1:
                     high_corr_pairs.append((c1, c2, corr_val))
 
     if high_corr_pairs:
-        print("Highly correlated feature pairs (|r| > 0.9) - consider dropping one:")
+        print("Highly correlated feature pairs (|r| > 0.9):")
         for c1, c2, corr_val in high_corr_pairs:
             print(f"  {c1} <-> {c2}: {corr_val:.3f}")
     else:
@@ -468,8 +444,6 @@ else:
 # Remove features that are too predictive on their own (likely proxies for the label).
 #
 # %% [code]
-from sklearn.feature_selection import mutual_info_classif
-
 print("\nChecking for Over-Predictive Features (Leakage)...")
 # Use Mutual Information as a more robust leakage metric than raw accuracy
 # High MI indicates the feature shares a lot of information with the target
@@ -479,18 +453,30 @@ clean_features = []
 
 X_all = df.select(high_var_cols).to_pandas()
 y_all = df["progression_to_death"].to_numpy()
+groups = df["alias_filled"].to_numpy()
+
+# Prevent leakage: Compute MI on training patients only
+gss = GroupShuffleSplit(n_splits=1, train_size=0.8, random_state=8675309)
+train_idx, _ = next(gss.split(X_all, y_all, groups))
+
+X_train = X_all.iloc[train_idx]
+y_train = y_all[train_idx]
 
 # For MI, we need to handle missing values first without biasing the leak check
 # Use a simple constant fill just for the MI calculation
-X_mi = X_all.copy()
+X_mi = X_train.copy()
+discrete_mask = []
+
 for c in X_mi.columns:
     if pd.api.types.is_numeric_dtype(X_mi[c]):
         X_mi[c] = X_mi[c].fillna(-999)
+        discrete_mask.append(False)
     else:
         X_mi[c] = X_mi[c].fillna("missing")
         X_mi[c] = LabelEncoder().fit_transform(X_mi[c].astype(str))
+        discrete_mask.append(True)
 
-mi_scores = mutual_info_classif(X_mi, y_all, random_state=8675309)
+mi_scores = mutual_info_classif(X_mi, y_train, discrete_features=discrete_mask, random_state=8675309)
 
 for i, c in enumerate(high_var_cols):
     score = mi_scores[i]
@@ -502,8 +488,8 @@ for i, c in enumerate(high_var_cols):
 # %% [code]
 if predictive_leaks:
     print("Found over-predictive features (leaks):")
-    for c, acc in predictive_leaks:
-        print(f"  {c:30s}: Accuracy={acc:.1%}")
+    for c, score in predictive_leaks:
+        print(f"  {c:30s}: MI Score={score:.3f}")
 else:
     print("No over-predictive leaks found.")
 
@@ -521,9 +507,7 @@ output_analytic_csv = processed_dir / "analytic-dataset.csv"
 df_model.write_csv(output_analytic_csv)
 
 # %% [code]
-print(f"\\n{'='*60}")
 print(f"FINAL FEATURE SET: {len(selected_features)} features")
-print(f"{'='*60}")
 print(f"Analytic dataset saved to: {output_analytic}")
 print(f"CSV export saved to: {output_analytic_csv}")
 print(f"Shape: {df_model.shape}")
