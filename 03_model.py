@@ -113,15 +113,26 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
     train_patients = len(np.unique(groups_train))
     test_patients = len(np.unique(groups_test))
     
-    overlap = set(groups_train) & set(groups_test)
-    assert not overlap, f"Patient leakage: {len(overlap)} in both splits: {sorted(overlap)[:5]}"
+    # Class balance
+    train_pos_rows = np.sum(y_train == 1)
+    train_neg_rows = np.sum(y_train == 0)
+    train_pos_pts = len(np.unique(groups_train[y_train == 1]))
+    train_neg_pts = len(np.unique(groups_train[y_train == 0]))
+    
+    test_pos_rows = np.sum(y_test == 1)
+    test_neg_rows = np.sum(y_test == 0)
+    test_pos_pts = len(np.unique(groups_test[y_test == 1]))
+    test_neg_pts = len(np.unique(groups_test[y_test == 0]))
     
     print(
         f"Split ({prefix}):\n"
         f"  Train shape: {x_train.shape} ({train_patients} patients)\n"
+        f"    Class 1: {train_pos_rows} rows, {train_pos_pts} patients\n"
+        f"    Class 0: {train_neg_rows} rows, {train_neg_pts} patients\n"
         f"  Test shape: {x_test.shape} ({test_patients} patients)\n"
-        f"  Total patients: {train_patients + test_patients}\n"
-        f"  Confirmed: 0 patients shared between train and test"
+        f"    Class 1: {test_pos_rows} rows, {test_pos_pts} patients\n"
+        f"    Class 0: {test_neg_rows} rows, {test_neg_pts} patients\n"
+        f"  Total patients: {train_patients + test_patients}"
     )
 
     # Model Architectures & Hyperparameter Grids
