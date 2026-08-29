@@ -241,6 +241,13 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
     all_feature_names = best_rf.named_steps['pre'].get_feature_names_out()
 
     importances = best_rf.named_steps['clf'].feature_importances_
+    
+    # Transparency: Assert feature name count matches importance count
+    assert len(all_feature_names) == len(importances), (
+        f"Feature name count {len(all_feature_names)} != importance count {len(importances)}"
+    )
+    print(f"Confirmed: {len(all_feature_names)} features in, {len(importances)} importances out")
+    
     feat_imp_df = pd.DataFrame({'feature': all_feature_names, 'importance': importances})
     feat_imp_df = feat_imp_df.sort_values('importance', ascending=False)
 
