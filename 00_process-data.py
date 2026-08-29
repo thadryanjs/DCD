@@ -135,15 +135,6 @@ print("\nAfter forward-fill:\n", forward_populate_ids(demo))
 raw_aliases = df_neg_raw["Alias"].to_list()
 boundaries = [i for i in range(1, len(raw_aliases)) if raw_aliases[i] != raw_aliases[i-1]]
 
-if len(boundaries) >= 2:
-    # Slice from just before the first boundary to just after the second
-    start = max(0, boundaries[0] - 2)
-    end = boundaries[1] + 3
-    length = end - start
-    
-    before_slice = df_neg_raw.slice(start, length).select(["Alias", "Age"])
-    print(f"Before forward-fill (Negative Cases, slice {start}:{end}):\n", before_slice)
-
 df_pos_raw_filled = forward_populate_ids(df_pos_raw, timestamp_col="Date/Time")
 df_neg_raw_filled = forward_populate_ids(df_neg_raw, timestamp_col="Date/Time")
 
