@@ -393,22 +393,23 @@ missing_df = pl.DataFrame({
 }).sort("missing_pct", descending=True)
 
 # %% [code]
-# 3. Filter by missingness threshold (< 10%) AND not in any exclusion list
-missingness_threshold = 0.10  # Remove features with >10% missing
-survivors = missing_df.filter(
-    (col("missing_pct") <= missingness_threshold * 100) &
-    (~col("feature").is_in(all_excludes))
-).get_column("feature").to_list()
+# 3. Filter by exclusions (Manual & Leakage)
+survivors_exc = [c for c in candidate_cols if c not in all_excludes]
+exc_dropped = [c for c in candidate_cols if c not in survivors_exc]
+exc_vals = {c: (leak_justifications.get(c) if c in leak_exclusion_list else "Manual/ID Exclusion") for c in exc_dropped}
+report_filter("Exclusions", candidate_cols, survivors_exc, "justification", exc_vals)
 
-# Receipt for missingness and exclusions
-miss_dropped = [c for c in candidate_cols if c not in survivors]
+# 4. Filter by missingness threshold (< 10%)
+missingness_threshold = 0.10
+survivors_miss = [c for c in survivors_exc if missing_df.filter(pl.col("feature") == c)["missing_pct"][0] <= missingness_threshold * 100]
+miss_dropped = [c for c in survivors_exc if c not in survivors_miss]
 miss_vals = {c: missing_df.filter(pl.col("feature") == c)["missing_pct"][0] for c in miss_dropped}
-report_filter("Missingness & Exclusions", candidate_cols, survivors, "missing_pct", miss_vals)
+report_filter("Missingness", survivors_exc, survivors_miss, "missing_pct", miss_vals)
 
 # %% [code]
 # Split survivors to apply variance filter only to numeric features
-survivor_numeric = [c for c in survivors if df.schema[c].is_numeric()]
-survivor_categorical = [c for c in survivors if not df.schema[c].is_numeric()]
+survivor_numeric = [c for c in survivors_miss if df.schema[c].is_numeric()]
+survivor_categorical = [c for c in survivors_miss if not df.schema[c].is_numeric()]
 
 # Calculate variance for numeric survivors
 variances = df.select([col(c).var().alias(f"{c}_var") for c in survivor_numeric]).row(0)
@@ -434,10 +435,13 @@ report_filter("Variance", survivor_numeric, high_var_numeric, "variance", var_va
 # Combine variance-filtered numeric and all categorical survivors
 high_var_cols = high_var_numeric + survivor_categorical
 
+# %% [markdown]
+# ### Correlation Analysis
+# This section reports highly correlated feature pairs (|r| > 0.9) for transparency.
+# **Note:** This section reports pairs but does not drop any features.
+#
 # %% [code]
-# Correlation analysis on remaining features
 print("\nCorrelation Analysis (high correlations > 0.9):")
-# Note: This section reports pairs but does not drop any features.
 numeric_high_var = [c for c in high_var_cols if df.schema[c].is_numeric()]
 
 # %% [markdown]
