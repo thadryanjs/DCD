@@ -114,17 +114,30 @@ print("Before forward-fill:\n", demo)
 print("\nAfter forward-fill:\n", forward_populate_ids(demo))
 
 # %% [code]
-# Real-data receipt: slice of negative cases spanning an ID boundary
-# Find where Alias changes from 1 to 2 (or similar)
-neg_sample_start = 14 # Known from previous debug prints
-before_slice = df_neg_raw.slice(neg_sample_start, 9).select(["Alias", "Age"])
-print("Before forward-fill (Real Data Slice):\n", before_slice)
+# Real-data receipt: slice of negative cases spanning at least two ID boundaries
+# We'll look for the first few transitions in the raw Alias column
+raw_aliases = df_neg_raw["Alias"].to_list()
+boundaries = [i for i in range(1, len(raw_aliases)) if raw_aliases[i] != raw_aliases[i-1]]
 
-df_pos_raw_filled = forward_populate_ids(df_pos_raw)
-df_neg_raw_filled = forward_populate_ids(df_neg_raw)
+if len(boundaries) >= 2:
+    # Slice from just before the first boundary to just after the second
+    start = max(0, boundaries[0] - 2)
+    end = boundaries[1] + 3
+    length = end - start
+    
+    before_slice = df_neg_raw.slice(start, length).select(["Alias", "Age"])
+    print(f"Before forward-fill (Negative Cases, slice {start}:{end}):\n", before_slice)
 
-after_slice = df_neg_raw_filled.slice(neg_sample_start, 9).select(["alias_filled", "observation", "Age"])
-print("\nAfter forward-fill (Real Data Slice):\n", after_slice)
+    df_pos_raw_filled = forward_populate_ids(df_pos_raw)
+    df_neg_raw_filled = forward_populate_ids(df_neg_raw)
+
+    after_slice = df_neg_raw_filled.slice(start, length).select(["alias_filled", "observation", "Age"])
+    print(f"\nAfter forward-fill (Negative Cases, slice {start}:{end}):\n", after_slice)
+else:
+    # Fallback if not enough boundaries
+    df_pos_raw_filled = forward_populate_ids(df_pos_raw)
+    df_neg_raw_filled = forward_populate_ids(df_neg_raw)
+    print("Not enough ID boundaries found for extended receipt. Using defaults.")
 
 
 # %% [markdown]
@@ -171,16 +184,20 @@ print("After cleaning:", cleaned_demo.columns)
 df_pos, map_pos = clean_colnames(df_pos_raw_filled)
 df_neg, map_neg = clean_colnames(df_neg_raw_filled)
 
-# Mapping receipt
+# Mapping receipt: formatted as tables
 print("\nPositive Column Mapping:")
-print(map_pos)
+print(pl.DataFrame([{"old": k, "new": v} for k, v in map_pos.items()]))
+
 print("\nNegative Column Mapping:")
-print(map_neg)
+print(pl.DataFrame([{"old": k, "new": v} for k, v in map_neg.items()]))
 
 # Audit for non-standard characters (excluding lowercase, numbers, underscores, hyphens)
 all_cleaned = list(map_pos.values()) + list(map_neg.values())
 weird = [n for n in all_cleaned if re.search(r"[^a-z0-9_-]", n)]
-print(f"\nNames with non-standard characters: {weird}")
+if weird:
+    print(f"\nWARNING: Names with non-standard characters (Potential R formula issues): {weird}")
+else:
+    print("\n✓ All cleaned names follow [a-z0-9_-] pattern.")
 
 print("\nColumns cleaned.")
 print("Positive Cases (Clean Names) Head:")
@@ -457,7 +474,13 @@ print(f"Concatenation successful!")
 print(f"Final Dataset Shape: {df_all.shape}")
 
 # %% [code]
-# Observation distribution
+# Observation distribution per source
+print("\nObservation Value Counts - Positives:")
+print(df_pos.select("observation").value_counts().sort("observation"))
+
+print("\nObservation Value Counts - Negatives:")
+print(df_neg.select("observation").value_counts().sort("observation"))
+
 print("\nObservation Value Counts (Combined):")
 print(df_all.select("observation").value_counts().sort("observation"))
 
