@@ -291,16 +291,19 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
         plt.close()
 
 # %% [markdown]
-# ## Full Dataset Analysis
-# Evaluate models using all available observations.
-#
-# %% [code]
-run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full")
-
-# %% [markdown]
 # ## First Look Only Analysis
 # Evaluate models using only the first observation per patient to remove time-series bias.
+# This is our primary analysis as it represents the most conservative estimate.
 #
 # %% [code]
 df_first_look = df.filter(pl.col("observation") == 1)
 run_ml_pipeline(df_first_look, numeric_cols, categorical_cols, prefix="first_look")
+
+# %% [markdown]
+# ## Full Dataset Analysis
+# Evaluate models using all available observations.
+# This serves as an optimistic upper bound; the performance gap between this and the
+# "First Look" analysis is used as a diagnostic for late-observation leakage.
+#
+# %% [code]
+run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full")
