@@ -53,23 +53,83 @@ print(sprintf("%d rows, %d patients", nrow(df), n_distinct(df[[id]])))
 # becomes all `NaN` under `scale()` and makes mice fail with an unhelpful error.
 #
 # %% [code]
-to_patient <- function(d) {
-  d <- d %>%
+to_patient <- function(d, name = "unnamed") {
+  # Aggregation Receipt: Dimensions
+  rows_before <- nrow(d)
+  cols_before <- ncol(d)
+  
+  # Temporary dataframe to keep ID for sample check
+  d_with_id <- d %>%
     select(-observation) %>%
     group_by(.data[[id]], .data[[label]]) %>%
-    summarise(across(everything(), ~mean(.x, na.rm = TRUE)), .groups = "drop") %>%
-    select(-all_of(id))
-  d <- d[sapply(d, function(x) n_distinct(x, na.rm = TRUE) >= 2)]
-  d %>% mutate(across(-all_of(label), ~as.numeric(scale(.x))))
+    summarise(across(everything(), ~mean(.x, na.rm = TRUE)), .groups = "drop")
+  
+  rows_after <- nrow(d_with_id)
+  cols_after <- ncol(d_with_id)
+  print(sprintf("[%s] Aggregation: %d rows x %d cols -> %d rows x %d cols", 
+                name, rows_before, cols_before, rows_after, cols_after))
+  
+  # Aggregation Receipt: Sample value check
+  sample_patient <- unique(d[[id]])[1]
+  sample_feats <- setdiff(names(d_with_id), c(id, label))[1:2]
+  
+  cat(sprintf("[%s] Sample mean check (Patient %s):\n", name, sample_patient))
+  for (f in sample_feats) {
+    raw_vals <- d %>% filter(.data[[id]] == sample_patient) %>% pull(!!sym(f))
+    mean_val <- d_with_id %>% filter(.data[[id]] == sample_patient) %>% pull(!!sym(f))
+    cat(sprintf("  %s: mean(%.3f, %.3f, ...) = %.3f\n", f, raw_vals[1], raw_vals[2], mean_val))
+  }
+  
+  d_final <- d_with_id %>% select(-all_of(id))
+  d_final <- d_final[sapply(d_final, function(x) n_distinct(x, na.rm = TRUE) >= 2)]
+  d_final %>% mutate(across(-all_of(label), ~as.numeric(scale(.x))))
 }
 
 # %% [code]
-all_obs <- to_patient(df)
-first_obs <- to_patient(df %>% filter(observation == 1))
+all_obs <- to_patient(df, "All Observations")
+first_obs <- to_patient(df %>% filter(observation == 1), "First Look Only")
 
 # %% [code]
 print(sprintf("All observations: %d x %d. First only: %d x %d.",
               nrow(all_obs), ncol(all_obs), nrow(first_obs), ncol(first_obs)))
+
+# Scaling Receipt: Verify mean ~ 0, SD ~ 1 for selected features
+receipt_feats <- setdiff(names(all_obs), label)[1:3]
+cat("\n--- Scaling Receipt (All Observations) ---\n")
+for (f in receipt_feats) {
+  # Need original data to check "before"
+  raw_vals <- df %>% 
+    group_by(.data[[id]], .data[[label]]) %>% 
+    summarise(m = mean(.data[[f]], na.rm = TRUE), .groups = "drop") %>% 
+    pull(m)
+  
+  before_mean <- mean(raw_vals, na.rm = TRUE)
+  before_sd <- sd(raw_vals, na.rm = TRUE)
+  after_mean <- mean(all_obs[[f]], na.rm = TRUE)
+  after_sd <- sd(all_obs[[f]], na.rm = TRUE)
+  
+  cat(sprintf("%s: Before[mean=%.3f, sd=%.3f] -> After[mean=%.3f, sd=%.3f]\n", 
+              f, before_mean, before_sd, after_mean, after_sd))
+}
+
+# Feature Reconciliation: Compare R features against ML selection
+if (file.exists("output/selected-features.csv")) {
+  ml_feats <- read_csv("output/selected-features.csv", show_col_types = FALSE) %>% pull(feature)
+  r_feats <- setdiff(names(all_obs), label)
+  diff_set <- symmetric_difference <- setdiff(ml_feats, r_feats)
+  diff_set_rev <- setdiff(r_feats, ml_feats)
+  all_diffs <- unique(c(diff_set, diff_set_rev))
+  
+  cat("\n--- Feature Reconciliation Receipt ---\n")
+  if (length(all_diffs) == 0) {
+    cat("✓ Feature sets align perfectly between 01 and 02.\n")
+  } else {
+    cat(sprintf("⚠ Mismatch found! %d features differ.\n", length(all_diffs)))
+    print(all_diffs)
+  }
+} else {
+  cat("\n--- Feature Reconciliation Receipt ---\nWarning: output/selected-features.csv not found. Skipping.\n")
+}
 
 # %% [markdown]
 # ## Fit
@@ -106,11 +166,22 @@ analyze <- function(d) {
     # Apply Rubin's Rules via pool()
     s <- summary(pool(as.mira(fits)), conf.int = TRUE)
     s <- s[s$term != "(Intercept)", ]
+    
+    # Capture stability details
+    is_unstable <- separated || abs(s$estimate) > 10 || s$std.error > 5
     out <- rbind(out, data.frame(
       feature = f, estimate = s$estimate, std_error = s$std.error, p_value = s$p.value,
       ci_low = s[["2.5 %"]], ci_high = s[["97.5 %"]],
-      unstable = separated || abs(s$estimate) > 10 || s$std.error > 5))
+      unstable = is_unstable, separated = separated))
   }
+  
+  # Transparency: Print unstable fits
+  unstable_fits <- out %>% filter(unstable)
+  if (nrow(unstable_fits) > 0) {
+    cat(sprintf("\nUnstable fits detected for %d features:\n", nrow(unstable_fits)))
+    print(unstable_fits %>% select(feature, estimate, std_error, separated))
+  }
+  
   out %>% mutate(p_adj = p.adjust(p_value, "fdr")) %>% arrange(p_value)
 }
 
@@ -178,6 +249,17 @@ ggsave("output/glmm_forest_plot_r.png", width = 10, height = 12, dpi = 300)
 #   the logged-events count above if the patient count is small.
 # - **Feature correlation** is covered in `01_explore-data.py`; not duplicated here.
 # - **Pin the mice version.** `pool` summary column names have changed across releases.
+#
+# %% [markdown]
+# ## CSV Column Definitions
+#
+# The output `feature_analysis.csv` contains:
+# - `estimate`: The log-odds ratio per standard deviation of the patient-level mean.
+# - `p_adj`: FDR-adjusted p-value.
+# - `unstable`: Flag for separated fits or extreme estimates/SEs.
+#
+# Note that in `04_analyze-model.py`, the `estimate` is exponentiated ($\exp(\beta)$) to 
+# produce the Odds Ratio (OR) used in the forest plot.
 #
 # %% [code]
 print("Analysis complete.")
