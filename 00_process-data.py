@@ -93,17 +93,33 @@ with pl.Config(tbl_rows=100):
 # Consumed by: `01` stability analysis, `03` first-look pipeline.
 
 # %% [code]
-def forward_populate_ids(df):
+def forward_populate_ids(df, timestamp_col=None):
     """Forward-fill Alias: each ID propagates down until the next ID.
-    Also creates an observation number for each row within each ID group."""
+    Also creates an observation number for each row within each ID group.
+    If timestamp_col is provided, sorts by it to ensure observation 1 is chronological.
+    """
     alias_col = [c for c in df.columns if c.lower() == "alias"]
     if not alias_col:
         return df
+    
+    # 1. Forward-fill Alias (MUST happen before sorting)
     df = df.with_columns(pl.col(alias_col[0]).forward_fill())
-    # Create observation number within each ID group
+    df = df.with_columns(pl.col(alias_col[0]).alias("alias_filled"))
+    
+    # 2. Sort by timestamp to ensure chronological order for 'observation'
+    if timestamp_col and timestamp_col in df.columns:
+        # Track original order to verify if sorting was necessary
+        df = df.with_columns(pl.int_range(0, pl.len()).alias("_orig_idx"))
+        df = df.sort(["alias_filled", timestamp_col])
+        
+        # Receipt: Check if original order was already chronological
+        is_sorted = df["_orig_idx"].is_sorted().all()
+        print(f"  Sorting by {timestamp_col}: {'Already chronological' if is_sorted else 'Reordered for chronology'}")
+        df = df.drop("_orig_idx")
+    
+    # 3. Create observation number within each ID group
     df = df.with_columns(
-        pl.col(alias_col[0]).alias("alias_filled"),
-        pl.int_range(0, pl.len()).cum_count().over(alias_col[0]).alias("observation")
+        pl.col("alias_filled").cum_count().over("alias_filled").alias("observation")
     )
     return df
 
@@ -128,16 +144,12 @@ if len(boundaries) >= 2:
     before_slice = df_neg_raw.slice(start, length).select(["Alias", "Age"])
     print(f"Before forward-fill (Negative Cases, slice {start}:{end}):\n", before_slice)
 
-    df_pos_raw_filled = forward_populate_ids(df_pos_raw)
-    df_neg_raw_filled = forward_populate_ids(df_neg_raw)
+df_pos_raw_filled = forward_populate_ids(df_pos_raw, timestamp_col="Date/Time")
+df_neg_raw_filled = forward_populate_ids(df_neg_raw, timestamp_col="Date/Time")
 
-    after_slice = df_neg_raw_filled.slice(start, length).select(["alias_filled", "observation", "Age"])
-    print(f"\nAfter forward-fill (Negative Cases, slice {start}:{end}):\n", after_slice)
-else:
-    # Fallback if not enough boundaries
-    df_pos_raw_filled = forward_populate_ids(df_pos_raw)
-    df_neg_raw_filled = forward_populate_ids(df_neg_raw)
-    print("Not enough ID boundaries found for extended receipt. Using defaults.")
+# Corrected receipt: show a slice of the negative dataset specifically
+after_slice = df_neg_raw_filled.slice(neg_sample_start, 9).select(["alias_filled", "observation", "Age"])
+print("\nAfter forward-fill (Real Data Slice):\n", after_slice)
 
 
 # %% [markdown]
@@ -184,7 +196,8 @@ print("After cleaning:", cleaned_demo.columns)
 df_pos, map_pos = clean_colnames(df_pos_raw_filled)
 df_neg, map_neg = clean_colnames(df_neg_raw_filled)
 
-# Mapping receipt: formatted as tables
+# %% [code]
+# Mapping receipt
 print("\nPositive Column Mapping:")
 print(pl.DataFrame([{"old": k, "new": v} for k, v in map_pos.items()]))
 
@@ -198,6 +211,17 @@ if weird:
     print(f"\nWARNING: Names with non-standard characters (Potential R formula issues): {weird}")
 else:
     print("\n✓ All cleaned names follow [a-z0-9_-] pattern.")
+
+# Explicit delta receipt: print only changed names for clarity
+print("\nPositive Name Changes:")
+for old, new in map_pos.items():
+    if old != new:
+        print(f"  {old} -> {new}")
+
+print("\nNegative Name Changes:")
+for old, new in map_neg.items():
+    if old != new:
+        print(f"  {old} -> {new}")
 
 print("\nColumns cleaned.")
 print("Positive Cases (Clean Names) Head:")
@@ -484,7 +508,11 @@ print(df_neg.select("observation").value_counts().sort("observation"))
 print("\nObservation Value Counts (Combined):")
 print(df_all.select("observation").value_counts().sort("observation"))
 
-print("\nObservations per Patient Distribution:")
+print("\nObservations per Patient Distribution (Combined):")
+obs_dist_all = df_all.group_by("alias_filled").agg(pl.len().alias("count"))
+print(f"Combined: Mean={obs_dist_all['count'].mean():.2f}, Max={obs_dist_all['count'].max()}, Min={obs_dist_all['count'].min()}")
+
+# Receipt: per-source distribution
 obs_dist_pos = df_pos.group_by("alias_filled").agg(pl.len().alias("count"))
 obs_dist_neg = df_neg.group_by("alias_filled").agg(pl.len().alias("count"))
 print(f"Positives: Mean={obs_dist_pos['count'].mean():.2f}, Max={obs_dist_pos['count'].max()}, Min={obs_dist_pos['count'].min()}")
