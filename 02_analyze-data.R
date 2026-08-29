@@ -30,6 +30,8 @@
 # Both the "all observations" and "first-look only" analyses are pooled across 
 # imputations for consistency. Features are scaled, so estimates are per standard deviation.
 #
+# **Note on Interpretation:** The `estimate` in the output CSV is the log-odds per standard deviation of the patient mean. These are unadjusted marginal effects. In `04_analyze-model.py`, these are exponentiated to produce Odds Ratios (OR).
+#
 # %% [code]
 library(tidyverse)
 library(mice)
@@ -119,7 +121,8 @@ analyze <- function(d) {
     out <- rbind(out, data.frame(
       feature = f, estimate = s$estimate, std_error = s$std.error, p_value = s$p.value,
       ci_low = s[["2.5 %"]], ci_high = s[["97.5 %"]],
-      unstable = separated || abs(s$estimate) > 10 || s$std.error > 5))
+      unstable = separated || abs(s$estimate) > 10 || s$std.error > 5,
+      separated_flag = separated))
   }
   out %>% mutate(p_adj = p.adjust(p_value, "fdr")) %>% arrange(p_value)
 }
@@ -127,6 +130,33 @@ analyze <- function(d) {
 # %% [code]
 results <- analyze(all_obs)
 first_results <- analyze(first_obs)
+
+# Feature Reconciliation Receipt
+# Compare R features against selected-features.csv from 01
+selected_feats_csv <- read_csv("output/selected-features.csv")
+selected_feats <- selected_feats_csv$feature
+
+r_feats <- setdiff(names(all_obs), label)
+diff_feats <- setdiff(r_feats, selected_feats)
+sym_diff <- union(setdiff(r_feats, selected_feats), setdiff(selected_feats, r_feats))
+
+print("--- Feature Reconciliation Receipt ---")
+print(sprintf("R features: %d | ML selected: %d", length(r_feats), length(selected_feats)))
+if (length(sym_diff) == 0) {
+    print("✓ Feature sets perfectly aligned.")
+} else {
+    print("Symmetric difference (features in one but not both):")
+    print(sym_diff)
+}
+
+# Unstable Fits Receipt
+unstable_results <- results %>% filter(unstable)
+print("\n--- Unstable Fits Receipt ---")
+if (nrow(unstable_results) > 0) {
+    print(unstable_results %>% select(feature, estimate, std_error, separated_flag))
+} else {
+    print("No unstable fits detected.")
+}
 
 # %% [code]
 print(sprintf("Significant (FDR, stable fits): %d of %d. Unstable: %d.",
