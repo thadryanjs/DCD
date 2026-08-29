@@ -120,7 +120,11 @@ print("✓ Random Forest model ready for explainability.")
 # # SHAP Analysis
 # We transform the training data and use TreeExplainer to calculate feature contributions.
 # SHAP is computed on the training split to provide a global explanation of the model's
-# learned logic.
+# learned logic. 
+#
+# Note that SHAP is computed in-sample on the training data; at this sample size, 
+# feature ranks may be noisy. High agreement between SHAP and inferential results 
+# should be viewed as directional corroboration rather than a precise ordering.
 #
 # %% [code]
 x_train_transformed = rf_pipeline.named_steps['pre'].transform(x_train)
