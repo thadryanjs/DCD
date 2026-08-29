@@ -112,11 +112,16 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
     # Split Receipt
     train_patients = len(np.unique(groups_train))
     test_patients = len(np.unique(groups_test))
+    
+    overlap = set(groups_train) & set(groups_test)
+    assert not overlap, f"Patient leakage: {len(overlap)} in both splits: {sorted(overlap)[:5]}"
+    
     print(
         f"Split ({prefix}):\n"
         f"  Train shape: {x_train.shape} ({train_patients} patients)\n"
         f"  Test shape: {x_test.shape} ({test_patients} patients)\n"
-        f"  Total patients: {train_patients + test_patients}"
+        f"  Total patients: {train_patients + test_patients}\n"
+        f"  Confirmed: 0 patients shared between train and test"
     )
 
     # Model Architectures & Hyperparameter Grids
