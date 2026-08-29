@@ -35,8 +35,8 @@ import joblib
 from sklearn.model_selection import GroupShuffleSplit
 
 # %% [code]
-# Default to 'full', but allow override via command line
-prefix = "full"
+# Default to 'first_look', but allow override via command line
+prefix = "first_look"
 if len(sys.argv) > 1:
     arg = sys.argv[1]
     if arg in ["full", "first_look"]:
