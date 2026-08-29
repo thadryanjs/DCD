@@ -145,14 +145,14 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
             "clf__C": [0.01, 0.1, 1, 10, 100]
         },
         "Random Forest": {
-            "clf__n_estimators": [50, 100, 200],
-            "clf__max_depth": [None, 5, 10, 20],
-            "clf__min_samples_split": [2, 5, 10]
+            "clf__n_estimators": [100, 200],
+            "clf__max_depth": [None, 10],
+            "clf__min_samples_split": [2, 5]
         },
         "XGBoost": {
-            "clf__learning_rate": [0.01, 0.1, 0.2],
-            "clf__max_depth": [3, 5, 7],
-            "clf__n_estimators": [50, 100, 200],
+            "clf__learning_rate": [0.1],
+            "clf__max_depth": [3, 5],
+            "clf__n_estimators": [100],
             "clf__scale_pos_weight": [spw]
         }
     }
