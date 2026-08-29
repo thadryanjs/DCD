@@ -25,7 +25,7 @@
 #
 # - **Grouping Variable**: `alias_filled`
 # - **Split**: `GroupShuffleSplit` (80% Train / 20% Test)
-# - **CV**: 10-Fold `StratifiedGroupKFold` (Outer) / 5-Fold (Inner)
+# - **CV**: 3x5 Repeated `StratifiedGroupKFold` (Outer) / 5-Fold (Inner)
 #
 # This ensures that all observations from a single patient stay within the same fold.
 #
@@ -163,7 +163,6 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
     }
 
     # Nested Cross-Validation
-    kf_outer = StratifiedGroupKFold(n_splits=10, shuffle=True, random_state=8675309)
     kf_inner = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=8675309)
 
     # Pre-compute outer folds for transparency and consistency
@@ -193,70 +192,80 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
     
     for name in pipelines.keys():
         print(f"\nEvaluating Model: {name} ({prefix})")
-        outer_metrics = {m: [] for m in metrics_to_track}
         
-        for fold_idx, (outer_train_idx, outer_test_idx) in enumerate(outer_folds):
-            x_tr_out, x_te_out = x_train.iloc[outer_train_idx], x_train.iloc[outer_test_idx]
-            y_tr_out, y_te_out = y_train[outer_train_idx], y_train[outer_test_idx]
-            gr_tr_out = groups_train[outer_train_idx]
-            x_tr_out, x_te_out = x_train.iloc[outer_train_idx], x_train.iloc[outer_test_idx]
-            y_tr_out, y_te_out = y_train[outer_train_idx], y_train[outer_test_idx]
-            gr_tr_out = groups_train[outer_train_idx]
+        # 3x5 Repeated Outer CV
+        for repeat in range(3):
+            kf_outer = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=8675309 + repeat)
+            repeat_metrics = {m: [] for m in metrics_to_track}
             
-            grid = GridSearchCV(
-                estimator=pipelines[name],
-                param_grid=param_grids[name],
-                cv=kf_inner,
-                scoring="roc_auc",
-                n_jobs=-1
-            )
-            
-            grid.fit(x_tr_out, y_tr_out, groups=gr_tr_out)
-            best_model = grid.best_estimator_
-            y_pred = best_model.predict(x_te_out)
-            y_prob = best_model.predict_proba(x_te_out)[:, 1]
-            
-            # Compute metrics individually to prevent AUC failure from zeroing others
-            acc = accuracy_score(y_te_out, y_pred)
-            prec = precision_score(y_te_out, y_pred, zero_division=0)
-            rec = recall_score(y_te_out, y_pred, zero_division=0)
-            f1 = f1_score(y_te_out, y_pred, zero_division=0)
-            
-            try:
-                auc = roc_auc_score(y_te_out, y_prob)
-            except ValueError:
-                auc = np.nan
-            
-            fold_results = {
-                "accuracy": acc,
-                "precision": prec,
-                "recall": rec,
-                "f1": f1,
-                "auc": auc,
-            }
-            
-            for m, val in fold_results.items():
-                outer_metrics[m].append(val)
-                all_cv_results.append({
-                    "model": name,
-                    "fold": fold_idx + 1,
-                    "metric": m,
-                    "value": val
-                })
+            for fold_idx, (outer_train_idx, outer_test_idx) in enumerate(kf_outer.split(x_train, y_train, groups=groups_train)):
+                x_tr_out, x_te_out = x_train.iloc[outer_train_idx], x_train.iloc[outer_test_idx]
+                y_tr_out, y_te_out = y_train[outer_train_idx], y_train[outer_test_idx]
+                gr_tr_out = groups_train[outer_train_idx]
+                
+                grid = GridSearchCV(
+                    estimator=pipelines[name],
+                    param_grid=param_grids[name],
+                    cv=kf_inner,
+                    scoring="roc_auc",
+                    n_jobs=-1
+                )
+                
+                grid.fit(x_tr_out, y_tr_out, groups=gr_tr_out)
+                best_model = grid.best_estimator_
+                y_pred = best_model.predict(x_te_out)
+                y_prob = best_model.predict_proba(x_te_out)[:, 1]
+                
+                # Compute metrics individually to prevent AUC failure from zeroing others
+                acc = accuracy_score(y_te_out, y_pred)
+                prec = precision_score(y_te_out, y_pred, zero_division=0)
+                rec = recall_score(y_te_out, y_pred, zero_division=0)
+                f1 = f1_score(y_te_out, y_pred, zero_division=0)
+                
+                try:
+                    auc = roc_auc_score(y_te_out, y_prob)
+                except ValueError:
+                    auc = np.nan
+                
+                fold_results = {
+                    "accuracy": acc,
+                    "precision": prec,
+                    "recall": rec,
+                    "f1": f1,
+                    "auc": auc,
+                }
+                
+                for m, val in fold_results.items():
+                    repeat_metrics[m].append(val)
+                    all_cv_results.append({
+                        "model": name,
+                        "repeat": repeat + 1,
+                        "fold": fold_idx + 1,
+                        "metric": m,
+                        "value": val
+                    })
 
-        print(f"\nResults for {name} ({prefix}):")
-        for m, scores in outer_metrics.items():
-            clean_scores = np.array(scores)[~np.isnan(scores)]
-            count = len(clean_scores)
-            if count == 0:
-                print(f"  {m:12s}: NaN [n=0]")
+            # Print per-repeat summary
+            print(f"  Repeat {repeat + 1}:")
+            for m, scores in repeat_metrics.items():
+                mean_s = np.nanmean(scores)
+                print(f"    {m:12s}: {mean_s:.3f} [n={len(scores)}]")
+
+        # Final summary across all repeats
+        print(f"\nOverall Results for {name} ({prefix}):")
+        model_results = pl.DataFrame(all_cv_results).filter(pl.col("model") == name)
+        for m in metrics_to_track:
+            scores = model_results.filter(pl.col("metric") == m)["value"].to_numpy()
+            clean_scores = scores[~np.isnan(scores)]
+            if len(clean_scores) == 0:
+                print(f"  {m:12s}: NaN")
                 continue
             
             median_s = np.median(clean_scores)
             min_s = np.min(clean_scores)
             max_s = np.max(clean_scores)
             iqr_s = np.percentile(clean_scores, 75) - np.percentile(clean_scores, 25)
-            print(f"  {m:12s}: {median_s:.3f} [{min_s:.3f}, {max_s:.3f}] (IQR: {iqr_s:.3f}) [n={count}]")
+            print(f"  {m:12s}: {median_s:.3f} [{min_s:.3f}, {max_s:.3f}] (IQR: {iqr_s:.3f}) [n={len(clean_scores)}]")
 
     cv_results_df = pl.DataFrame(all_cv_results)
     cv_results_path = plots_dir / f"cv_metrics_per_fold_{prefix}.csv"
@@ -335,7 +344,7 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
         plt.figure(figsize=(10, 6))
         sns.boxplot(data=m_df, x="model", y="value", hue="model", palette="Set2", legend=False)
         sns.stripplot(data=m_df, x="model", y="value", color=".3", alpha=0.5)
-        plt.title(f"10-Fold Nested CV {metric.upper()} Distribution ({prefix})")
+        plt.title(f"3x5 Repeated Nested CV {metric.upper()} Distribution ({prefix})")
         plt.ylabel(metric.capitalize())
         plt.xlabel("Model")
         plt.grid(axis='y', linestyle='--', alpha=0.7)
