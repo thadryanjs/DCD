@@ -323,4 +323,7 @@ git push --force-with-lease
 cd ~/Vaults/Projects/Dotfiles
 
 # 4. next PR
+
+git checkout master && git pull && for w in ../Agent1 ../Agent2 ../Agent3; do git -C "$w" fetch && git -C "$w" rebase origin/master && git -C "$w" push --force-with-lease || echo ">>> NEEDS ATTENTION: $w"; done
 ```
+
