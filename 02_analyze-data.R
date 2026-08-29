@@ -21,9 +21,13 @@
 # variation to explain and is not identifiable, so we average each patient's
 # observations and fit a patient-level logistic regression per feature, FDR corrected.
 #
-# Missing values go through multiple imputation. Each feature is fitted once per imputed
-# dataset and pooled with Rubin's rules, so the intervals carry the imputation
-# uncertainty. Features are scaled, so estimates are per standard deviation.
+# Missing values are handled using Multiple Imputation by Chained Equations (MICE) 
+# with $m=5$ imputations. Each feature is fitted once per imputed dataset, and the 
+# results are pooled using Rubin's rules. This allows the final confidence intervals 
+# to account for the uncertainty introduced by the imputation process. 
+#
+# Both the "all observations" and "first-look only" analyses are pooled across 
+# imputations for consistency. Features are scaled, so estimates are per standard deviation.
 #
 # %% [code]
 library(tidyverse)
