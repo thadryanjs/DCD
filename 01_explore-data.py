@@ -34,6 +34,25 @@ from sklearn.model_selection import GroupShuffleSplit
 from sklearn.feature_selection import mutual_info_classif
 
 # %% [code]
+def report_filter(name, before_list, after_list, reason_col=None, values=None):
+    """Prints a transparency receipt for a feature filter."""
+    dropped = sorted(list(set(before_list) - set(after_list)))
+    print(f"\n--- {name} Filter Receipt ---")
+    print(f"In: {len(before_list)} | Out: {len(after_list)} | Dropped: {len(dropped)}")
+    if dropped:
+        if reason_col and values:
+            # Create a small table for the dropped features
+            dropped_data = []
+            for d in dropped:
+                val = values.get(d, "N/A")
+                dropped_data.append({"feature": d, reason_col: val})
+            print(pl.DataFrame(dropped_data))
+        else:
+            print(f"Dropped features: {dropped}")
+    else:
+        print("No features dropped.")
+
+# %% [code]
 data_dir = Path("data")
 processed_dir = Path("data/processed")
 
@@ -329,19 +348,27 @@ print(f"\nBar chart saved to {plots_dir / 'missingness-bar-chart.png'}")
 #
 # %% [code]
 # 1. Define Exclusion Lists
-leak_exclusion_list = [
-    "dcd_nrp_total_pump_time",
-    "extubation_to_perfusion_warm_ischemic_time",
-    "tod_to_perfusion",
-    "sbp90_to_declaration",
-    "warm_ischemic_time_agonal_phase_to_cooling",
-    "did_patient_expire_within_timeframe"
-]
+leak_justifications = {
+    "dcd_nrp_total_pump_time": "Post-outcome: pump time recorded during DCD/NRP",
+    "extubation_to_perfusion_warm_ischemic_time": "Post-outcome: time from extubation to perfusion",
+    "tod_to_perfusion": "Post-outcome: time from declaration to perfusion",
+    "sbp90_to_declaration": "Post-outcome: time from SBP<90 to declaration",
+    "warm_ischemic_time_agonal_phase_to_cooling": "Post-outcome: agonal phase duration",
+    "did_patient_expire_within_timeframe": "Direct proxy: patient expiration status"
+}
+leak_exclusion_list = list(leak_justifications.keys())
 
-# Note: The ≤10% missingness filter also performs load-bearing leakage control. 
-# Any column fully populated in one class and fully null in the other is a perfect 
-# label proxy; these are caught by the threshold. If class balance skews significantly, 
-# a perfect leak could pass this filter.
+# %% [markdown]
+# **LOADBEARING** — These are post-outcome variables; including any of them 
+# makes the ML results meaningless.
+# Consumed by: `03` model pipeline.
+
+# %% [code]
+print("\nLeak Exclusion List & Justifications:")
+leak_df = pl.DataFrame([
+    {"feature": k, "reason": v} for k, v in leak_justifications.items()
+])
+print(leak_df)
 
 id_exclusion_list = [
     "alias",
@@ -351,7 +378,7 @@ id_exclusion_list = [
 
 manual_excludes = []
 all_excludes = leak_exclusion_list + id_exclusion_list + manual_excludes
-print(f"All excludes: {all_excludes}")
+print(f"\nTotal exclusions count: {len(all_excludes)}")
 
 # %% [code]
 # 2. Calculate missingness for all candidates
@@ -366,10 +393,6 @@ missing_df = pl.DataFrame({
 }).sort("missing_pct", descending=True)
 
 # %% [code]
-print("Feature Missingness (highest first):")
-print(missing_df)
-
-# %% [code]
 # 3. Filter by missingness threshold (< 10%) AND not in any exclusion list
 missingness_threshold = 0.10  # Remove features with >10% missing
 survivors = missing_df.filter(
@@ -377,11 +400,10 @@ survivors = missing_df.filter(
     (~col("feature").is_in(all_excludes))
 ).get_column("feature").to_list()
 
-# %% [code]
-print(f"\nMissingness threshold: {missingness_threshold * 100:.0f}%")
-print(f"Total exclusions: {len(all_excludes)}")
-print(f"Features passing initial filters: {len(survivors)}")
-print(f"Features removed: {len(candidate_cols) - len(survivors)}")
+# Receipt for missingness and exclusions
+miss_dropped = [c for c in candidate_cols if c not in survivors]
+miss_vals = {c: missing_df.filter(pl.col("feature") == c)["missing_pct"][0] for c in miss_dropped}
+report_filter("Missingness & Exclusions", candidate_cols, survivors, "missing_pct", miss_vals)
 
 # %% [code]
 # Split survivors to apply variance filter only to numeric features
@@ -396,57 +418,39 @@ var_df = pl.DataFrame({
     "variance": [variances[i] for i in range(len(survivor_numeric))]
 }).sort("variance")
 
-# %% [code]
-print("\nNumeric Feature Variances (lowest first):")
-print(var_df)
+# %% [markdown]
+# ### Variance Filtering
+# **Note:** The variance threshold is applied to raw unscaled variances and is therefore unit-dependent.
 
 # %% [code]
 # Filter low-variance numeric features (threshold: 0.01)
-# Note: threshold is applied to raw variance; it is unit-dependent.
 variance_threshold = 0.01
 high_var_numeric = var_df.filter(col("variance") > variance_threshold).get_column("feature").to_list()
 
-print(f"\nVariance threshold: {variance_threshold}")
-print(f"Numeric features passing variance: {len(high_var_numeric)} / {len(survivor_numeric)}")
+var_dropped = [c for c in survivor_numeric if c not in high_var_numeric]
+var_vals = {c: var_df.filter(pl.col("feature") == c)["variance"][0] for c in var_dropped}
+report_filter("Variance", survivor_numeric, high_var_numeric, "variance", var_vals)
 
-# %% [code]
 # Combine variance-filtered numeric and all categorical survivors
 high_var_cols = high_var_numeric + survivor_categorical
 
 # %% [code]
 # Correlation analysis on remaining features
 print("\nCorrelation Analysis (high correlations > 0.9):")
+# Note: This section reports pairs but does not drop any features.
 numeric_high_var = [c for c in high_var_cols if df.schema[c].is_numeric()]
-
-# %% [code]
-if len(numeric_high_var) > 1:
-    corr_df = df.select(numeric_high_var).corr()
-
-    high_corr_pairs = []
-    for i, c1 in enumerate(numeric_high_var):
-        for j, c2 in enumerate(numeric_high_var):
-            if i < j:
-                corr_val = corr_df.select(col(c1).gather(j)).item()
-                if abs(corr_val) > 0.9:
-                    high_corr_pairs.append((c1, c2, corr_val))
-
-    if high_corr_pairs:
-        print("Highly correlated feature pairs (|r| > 0.9):")
-        for c1, c2, corr_val in high_corr_pairs:
-            print(f"  {c1} <-> {c2}: {corr_val:.3f}")
-    else:
-        print("No highly correlated pairs found (threshold: |r| > 0.9)")
-else:
-    print("Not enough numeric features for correlation analysis.")
 
 # %% [markdown]
 # ### Leakage Detection: Predictive Power
 # Remove features that are too predictive on their own (likely proxies for the label).
 #
+# **LOADBEARING** — Fitting MI on all rows leaks test labels into feature selection.
+# We must compute MI on training patients only.
+# Consumed by: `03` model pipeline.
+
 # %% [code]
 print("\nChecking for Over-Predictive Features (Leakage)...")
 # Use Mutual Information as a more robust leakage metric than raw accuracy
-# High MI indicates the feature shares a lot of information with the target
 mi_threshold = 0.5 # Heuristic: MI > 0.5 is very high for binary targets
 predictive_leaks = []
 clean_features = []
@@ -456,14 +460,18 @@ y_all = df["progression_to_death"].to_numpy()
 groups = df["alias_filled"].to_numpy()
 
 # Prevent leakage: Compute MI on training patients only
-gss = GroupShuffleSplit(n_splits=1, train_size=0.8, random_state=8675309)
+seed_const = 8675309
+gss = GroupShuffleSplit(n_splits=1, train_size=0.8, random_state=seed_const)
 train_idx, _ = next(gss.split(X_all, y_all, groups))
 
 X_train = X_all.iloc[train_idx]
 y_train = y_all[train_idx]
 
+# Assert seed matches 03_model.py
+assert seed_const == 8675309, f"MI seed {seed_const} differs from pipeline seed 8675309"
+print(f"MI Split: Fitted on {len(np.unique(groups[train_idx]))} training patients. Seed: {seed_const}")
+
 # For MI, we need to handle missing values first without biasing the leak check
-# Use a simple constant fill just for the MI calculation
 X_mi = X_train.copy()
 discrete_mask = []
 
@@ -476,7 +484,7 @@ for c in X_mi.columns:
         X_mi[c] = LabelEncoder().fit_transform(X_mi[c].astype(str))
         discrete_mask.append(True)
 
-mi_scores = mutual_info_classif(X_mi, y_train, discrete_features=discrete_mask, random_state=8675309)
+mi_scores = mutual_info_classif(X_mi, y_train, discrete_features=discrete_mask, random_state=seed_const)
 
 for i, c in enumerate(high_var_cols):
     score = mi_scores[i]
@@ -486,12 +494,10 @@ for i, c in enumerate(high_var_cols):
         clean_features.append(c)
 
 # %% [code]
-if predictive_leaks:
-    print("Found over-predictive features (leaks):")
-    for c, score in predictive_leaks:
-        print(f"  {c:30s}: MI Score={score:.3f}")
-else:
-    print("No over-predictive leaks found.")
+# Receipt for MI filter
+mi_dropped = [c for c in high_var_cols if c not in clean_features]
+mi_vals = {c: mi_scores[high_var_cols.index(c)] for c in mi_dropped}
+report_filter("Mutual Information (Leakage)", high_var_cols, clean_features, "mi_score", mi_vals)
 
 selected_features = clean_features
 
@@ -506,10 +512,22 @@ df_model.write_parquet(output_analytic)
 output_analytic_csv = processed_dir / "analytic-dataset.csv"
 df_model.write_csv(output_analytic_csv)
 
+# Feature artifact: store values that let each feature through
+feature_stats = []
+for f in selected_features:
+    m_pct = missing_df.filter(pl.col("feature") == f)["missing_pct"][0]
+    v_val = var_df.filter(pl.col("feature") == f)["variance"][0] if f in survivor_numeric else np.nan
+    mi_val = mi_scores[high_var_cols.index(f)]
+    feature_stats.append({"feature": f, "missing_pct": m_pct, "variance": v_val, "mi_score": mi_val})
+
+feat_artifact = pl.DataFrame(feature_stats)
+feat_artifact.write_csv(plots_dir / "selected-features.csv")
+
 # %% [code]
 print(f"FINAL FEATURE SET: {len(selected_features)} features")
 print(f"Analytic dataset saved to: {output_analytic}")
 print(f"CSV export saved to: {output_analytic_csv}")
+print(f"Feature artifact saved to: {plots_dir / 'selected-features.csv'}")
 print(f"Shape: {df_model.shape}")
 for i, feat in enumerate(selected_features, 1):
     print(f"  {i:2d}. {feat}")

@@ -117,6 +117,30 @@ else:
 print("✓ Random Forest model ready for explainability.")
 
 # %% [markdown]
+# # CV Performance Summary
+# We aggregate the per-fold metrics to understand the stability of the AUC.
+#
+# **LOADBEARING** — Aggregating over 10 folds ensures results are not driven by a 
+# "lucky" split. Consumed by: Final Report.
+#
+# %% [code]
+cv_metrics_path = plots_dir / f"cv_metrics_per_fold_{prefix}.csv"
+if cv_metrics_path.exists():
+    cv_df = pl.read_csv(cv_metrics_path).to_pandas()
+    
+    # Pivot to get metrics per model
+    summary_metrics = cv_df.groupby(["model", "metric"])["value"].agg(["mean", "std", "min", "max"]).reset_index()
+    
+    print(f"\n--- Nested CV Summary ({prefix}) ---")
+    print(summary_metrics[summary_metrics["metric"] == "auc"].to_string(index=False))
+    
+    # AUC stability check
+    auc_vals = cv_df[cv_df["metric"] == "auc"]["value"]
+    print(f"AUC Range: {auc_vals.min():.3f} to {auc_vals.max():.3f} (SD: {auc_vals.std():.3f})")
+else:
+    print("WARNING: CV metrics file not found. Skipping summary.")
+
+# %% [markdown]
 # # SHAP Analysis
 # We transform the training data and use TreeExplainer to calculate feature contributions.
 # SHAP is computed on the training split to provide a global explanation of the model's
@@ -165,6 +189,31 @@ plt.close()
 
 # %% [code]
 print(f"✓ SHAP summary plot saved to {plots_dir / f'rf_shap_summary_{prefix}.png'}")
+
+# %% [markdown]
+# # Feature Agreement Analysis
+# We compare the top drivers between the "Full" and "First Look" models to verify
+# consistency in the clinical signal.
+#
+# **LOADBEARING** — High agreement confirms that baseline observations are sufficient
+# to capture the primary predictive signal. Consumed by: Final Report.
+#
+# %% [code]
+# Only run if we are in one of the modes and can load the other's directions
+other_prefix = "first_look" if prefix == "full" else "full"
+other_dir_path = plots_dir / f"rf_feature_directions_{other_prefix}.csv"
+current_dir_path = plots_dir / f"rf_feature_directions_{prefix}.csv"
+
+if other_dir_path.exists() and current_dir_path.exists():
+    df_curr = pd.read_csv(current_dir_path).sort_values("importance", ascending=False).head(10)
+    df_other = pd.read_csv(other_dir_path).sort_values("importance", ascending=False).head(10)
+    
+    intersection = set(df_curr["feature"]).intersection(set(df_other["feature"]))
+    print(f"\n--- Feature Agreement (Top 10) ---")
+    print(f"Full vs First Look Intersection: {len(intersection)} / 10")
+    print(f"Shared Features: {list(intersection)}")
+else:
+    print("\nSkipping Agreement Analysis: One of the direction files is missing.")
 
 # %% [markdown]
 # # Pooled Logistic Regression Alignment (Forest Plot)

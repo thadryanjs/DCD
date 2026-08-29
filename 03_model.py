@@ -99,6 +99,9 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
     x_df = df.select(numeric_cols + categorical_cols).to_pandas()
     y = df["progression_to_death"].to_numpy()
 
+    # **LOADBEARING** — Using GroupShuffleSplit prevents patient-level leakage.
+    # Seed pinned to match 01 feature selection split.
+    # Consumed by: `04` analyze-model.py (CV aggregation)
     gss = GroupShuffleSplit(n_splits=1, train_size=0.8, random_state=8675309)
     train_idx, test_idx = next(gss.split(x_df, y, groups))
 
@@ -106,18 +109,21 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
     y_train, y_test = y[train_idx], y[test_idx]
     groups_train, groups_test = groups[train_idx], groups[test_idx]
 
+    # Split Receipt
+    train_patients = len(np.unique(groups_train))
+    test_patients = len(np.unique(groups_test))
     print(
         f"Split ({prefix}):\n"
-        f"  Train shape: {x_train.shape}\n"
-        f"  Test shape: {x_test.shape}\n"
-        f"  Train patients: {len(np.unique(groups_train))}\n"
-        f"  Test patients: {len(np.unique(groups_test))}"
+        f"  Train shape: {x_train.shape} ({train_patients} patients)\n"
+        f"  Test shape: {x_test.shape} ({test_patients} patients)\n"
+        f"  Total patients: {train_patients + test_patients}"
     )
 
     # Model Architectures & Hyperparameter Grids
     pos_count = (y_train == 1).sum()
     neg_count = (y_train == 0).sum()
     spw = float(neg_count / pos_count) if pos_count > 0 else 1.0
+    print(f"Class Weighting: Pos={pos_count}, Neg={neg_count}, XGBoost spw={spw:.3f}")
 
     pipelines = {
         "Logistic Regression": Pipeline([

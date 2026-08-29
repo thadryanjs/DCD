@@ -30,5 +30,5 @@ Plumbing is verified clean (grouping, inner-CV routing, in-fold preprocessing). 
 ## Batch only if already in the file
 - [ ] Dead code: unused `train_test_split`, unused `scoring` dict, `df_analytic`, redundant imports in `03`.
 - [ ] `04` re-derives the split to rebuild `x_train` — fragile across data/version changes.
-- [ ] MI block prints its value labeled `Accuracy=`.
+- [x] MI block prints its value labeled `Accuracy=`.
 - [ ] Outer/inner `train_idx`/`test_idx` shadowing in `03` (no active bug, but a landmine).

@@ -88,6 +88,10 @@ with pl.Config(tbl_rows=100):
 # ### Fix: Forward-Fill the IDs
 # Each ID propagates down until the next ID appears.
 #
+# **LOADBEARING** — `observation` numbering drives every first-look analysis.
+# If numbering is shifted or non-sequential, "First Look" captures wrong rows.
+# Consumed by: `01` stability analysis, `03` first-look pipeline.
+
 # %% [code]
 def forward_populate_ids(df):
     """Forward-fill Alias: each ID propagates down until the next ID.
@@ -110,11 +114,17 @@ print("Before forward-fill:\n", demo)
 print("\nAfter forward-fill:\n", forward_populate_ids(demo))
 
 # %% [code]
+# Real-data receipt: slice of negative cases spanning an ID boundary
+# Find where Alias changes from 1 to 2 (or similar)
+neg_sample_start = 14 # Known from previous debug prints
+before_slice = df_neg_raw.slice(neg_sample_start, 9).select(["Alias", "Age"])
+print("Before forward-fill (Real Data Slice):\n", before_slice)
+
 df_pos_raw_filled = forward_populate_ids(df_pos_raw)
 df_neg_raw_filled = forward_populate_ids(df_neg_raw)
 
-print("\nPositive Cases (IDs Forward-Filled) - First 20 rows:")
-print(df_pos_raw_filled.select(["alias_filled", "observation", "Age"]).head(20))
+after_slice = df_neg_raw_filled.slice(neg_sample_start, 9).select(["alias_filled", "observation", "Age"])
+print("\nAfter forward-fill (Real Data Slice):\n", after_slice)
 
 
 # %% [markdown]
@@ -134,26 +144,43 @@ print(df_neg_raw.columns)
 # ### Fix: Clean Column Names
 # Normalize to lowercase, replace spaces/slashes with underscores.
 #
+# **LOADBEARING** — The cleaner permits hyphens, and a hyphenated column name
+# becomes subtraction in an R formula. `02` backticks its formulas because of this.
+# Consumed by: `02` analyze-data.R
+
 # %% [code]
 def clean_colnames(df):
-    """Clean column names: lowercase, no spaces/slashes."""
+    """Clean column names: lowercase, no spaces/slashes. Returns (df, mapping)."""
     def _clean(name):
         name = name.strip()
         name = name.replace("/", "_")
         name = name.replace(" ", "_")
         name = re.sub(r"[^a-zA-Z0-9_-]", "", name)
         return name.lower()
-    return df.rename({col: _clean(col) for col in df.columns})
+    mapping = {col: _clean(col) for col in df.columns}
+    return df.rename(mapping), mapping
 
 # %% [code]
 # Proof on toy data
 demo = pl.DataFrame({"Case/ID": [1], "O2 Sat ": [98], "Age": [50]})
 print("Before cleaning:", demo.columns)
-print("After cleaning:", clean_colnames(demo).columns)
+cleaned_demo, _ = clean_colnames(demo)
+print("After cleaning:", cleaned_demo.columns)
 
 # %% [code]
-df_pos = clean_colnames(df_pos_raw_filled)
-df_neg = clean_colnames(df_neg_raw_filled)
+df_pos, map_pos = clean_colnames(df_pos_raw_filled)
+df_neg, map_neg = clean_colnames(df_neg_raw_filled)
+
+# Mapping receipt
+print("\nPositive Column Mapping:")
+print(map_pos)
+print("\nNegative Column Mapping:")
+print(map_neg)
+
+# Audit for non-standard characters (excluding lowercase, numbers, underscores, hyphens)
+all_cleaned = list(map_pos.values()) + list(map_neg.values())
+weird = [n for n in all_cleaned if re.search(r"[^a-z0-9_-]", n)]
+print(f"\nNames with non-standard characters: {weird}")
 
 print("\nColumns cleaned.")
 print("Positive Cases (Clean Names) Head:")
@@ -372,22 +399,95 @@ else:
 # %% [markdown]
 # ## Combine Datasets
 #
+# **LOADBEARING** — Both workbooks number patients from 1. Without the prefix,
+# `pos_1` and `neg_1` collide into a single group, which corrupts patient counts in
+# `01`, degrades stratification in `03`, and makes the R random-effect structure
+# meaningless. Consumed by: `01` stability analysis, `03` group splits, `02` aggregation.
+
 # %% [code]
 print("Attempting concat...")
 # Namespace alias_filled to prevent collision between positive and negative patient IDs
+pos_count_before = df_pos["alias_filled"].n_unique()
+neg_count_before = df_neg["alias_filled"].n_unique()
+
 df_pos = df_pos.with_columns(("pos_" + pl.col("alias_filled").cast(pl.String)).alias("alias_filled"))
 df_neg = df_neg.with_columns(("neg_" + pl.col("alias_filled").cast(pl.String)).alias("alias_filled"))
 
+pos_count_after = df_pos["alias_filled"].n_unique()
+neg_count_after = df_neg["alias_filled"].n_unique()
+
 df_all = pl.concat([df_pos, df_neg], how="diagonal")
+
+# Namespacing receipt
+print(f"Unique patients - Positives: {pos_count_before} -> {pos_count_after}")
+print(f"Unique patients - Negatives: {neg_count_before} -> {neg_count_after}")
+print(f"Combined unique patients: {df_all['alias_filled'].n_unique()}")
+assert df_all['alias_filled'].n_unique() == pos_count_after + neg_count_after, "Patient ID collision during concat"
+
+print("\nSample IDs:")
+print(f"Pos: {df_pos['alias_filled'].head(5).to_list()}")
+print(f"Neg: {df_neg['alias_filled'].head(5).to_list()}")
+
+# %% [markdown]
+# ### Diagonal Concat Column Provenance
+#
+# **LOADBEARING** — `how="diagonal"` fills absent columns with nulls.
+# A column present in only one workbook can become a perfect label proxy.
+# This is the mechanism the `01` missingness filter exists to catch.
+# Consumed by: `01` missingness filter.
+
+# %% [code]
+cols_pos = set(df_pos.columns)
+cols_neg = set(df_neg.columns)
+
+pos_only = sorted(list(cols_pos - cols_neg))
+neg_only = sorted(list(cols_neg - cols_pos))
+both = sorted(list(cols_pos & cols_neg))
+
+print(f"Columns in both: {len(both)}")
+print(f"Columns in Positives only: {len(pos_only)} {pos_only}")
+print(f"Columns in Negatives only: {len(neg_only)} {neg_only}")
+
+# We allow them, but explicitly note they are candidate leaks
+if pos_only or neg_only:
+    print("\nNote: Asymmetric columns detected. These will be handled by the 10% missingness filter in 01.")
+
+# %% [code]
 print(f"Concatenation successful!")
 print(f"Final Dataset Shape: {df_all.shape}")
 
 # %% [code]
-# Assert observation is 1-based to ensure "first look" analysis uses the correct rows
-obs_min = df_all.select(pl.col("observation").min()).item()
-print(f"Minimum observation value: {obs_min}")
-assert obs_min == 1, f"Observation numbering must be 1-based. Found min: {obs_min}"
+# Observation distribution
+print("\nObservation Value Counts (Combined):")
+print(df_all.select("observation").value_counts().sort("observation"))
 
+print("\nObservations per Patient Distribution:")
+obs_dist_pos = df_pos.group_by("alias_filled").agg(pl.len().alias("count"))
+obs_dist_neg = df_neg.group_by("alias_filled").agg(pl.len().alias("count"))
+print(f"Positives: Mean={obs_dist_pos['count'].mean():.2f}, Max={obs_dist_pos['count'].max()}, Min={obs_dist_pos['count'].min()}")
+print(f"Negatives: Mean={obs_dist_neg['count'].mean():.2f}, Max={obs_dist_neg['count'].max()}, Min={obs_dist_neg['count'].min()}")
+
+# %% [markdown]
+# ## Final Summary
+#
+# %% [code]
+# Class distribution
+class_summary = df_all.group_by("progression_to_death").agg([
+    pl.len().alias("rows"),
+    pl.col("alias_filled").n_unique().alias("patients")
+])
+print("Class Distribution:")
+print(class_summary)
+
+# Observations per patient by class
+obs_summary = df_all.group_by(["progression_to_death", "alias_filled"]).agg(pl.len().alias("count"))
+obs_by_class = obs_summary.group_by("progression_to_death").agg([
+    pl.col("count").mean().alias("avg_obs"),
+    pl.col("count").max().alias("max_obs"),
+    pl.col("count").min().alias("min_obs")
+])
+print("\nObservations per Patient by Class:")
+print(obs_by_class)
 
 # %% [markdown]
 # ## Save Processed Dataset

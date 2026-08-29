@@ -80,8 +80,19 @@ print(sprintf("All observations: %d x %d. First only: %d x %d.",
 #
 # %% [code]
 analyze <- function(d) {
+  # **LOADBEARING** — Multiple Imputation (m=5) accounts for missing data uncertainty.
+  # Seed is pinned to match ML pipeline for reproducibility.
+  # Consumed by: `data/processed/feature_analysis.csv`
   imp <- mice(d, m = m, printFlag = FALSE, seed = 8675309)
+  
+  # Imputation Provenance: Log events (collinear columns, etc.)
+  # If loggedEvents > 0, mice stripped columns; results may be biased.
   print(sprintf("mice logged events: %d", NROW(imp$loggedEvents)))
+  if (NROW(imp$loggedEvents) > 0) {
+    print("mice stripped columns due to collinearity/constant values:")
+    print(imp$loggedEvents)
+  }
+  
   out <- NULL
   for (f in setdiff(names(d), label)) {
     fits <- list()
@@ -92,6 +103,7 @@ analyze <- function(d) {
       p <- fitted(fits[[i]])
       separated <- separated || any(p < 1e-8 | p > 1 - 1e-8)
     }
+    # Apply Rubin's Rules via pool()
     s <- summary(pool(as.mira(fits)), conf.int = TRUE)
     s <- s[s$term != "(Intercept)", ]
     out <- rbind(out, data.frame(
@@ -147,7 +159,15 @@ ggsave("output/glmm_forest_plot_r.png", width = 10, height = 12, dpi = 300)
 # %% [markdown]
 # ## Limitations
 #
-# - **Model Choice.** The patient-level GLM was used as the primary inferential model because the outcome is time-invariant within patients, making a random-intercept GLMM non-identifiable. A mixed model in this context produces boundary variance estimates and is statistically inappropriate.
+# - **Multiple Testing.** We apply FDR correction (Benjamini-Hochberg) across all univariate fits. 
+#   The resulting p_adj indicates the proportion of false discoveries expected among 
+#   significant features.
+# - **Inferential Nature.** Pooled Odds Ratios are unadjusted. They identify strong candidate 
+#   drivers but do not account for confounders.
+# - **No mixed-effects model.** The spec called for lme4 with person-level random
+#   effects, but the outcome is time-invariant within patient, so a random intercept is
+#   not identifiable. A mixed model here gives boundary variance estimates and
+#   attenuated fixed effects; the patient-level GLM is the right model for this outcome.
 # - **No time-to-event analysis.** Only whether the event occurred is recorded, not when,
 #   so discrete-time survival with a patient frailty term is unavailable.
 # - **Univariate screens.** Each feature is modelled alone with FDR correction across
