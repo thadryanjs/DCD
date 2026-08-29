@@ -53,19 +53,29 @@ print(sprintf("%d rows, %d patients", nrow(df), n_distinct(df[[id]])))
 # becomes all `NaN` under `scale()` and makes mice fail with an unhelpful error.
 #
 # %% [code]
-to_patient <- function(d) {
+to_patient <- function(d, name = "unnamed") {
   d <- d %>%
     select(-observation) %>%
     group_by(.data[[id]], .data[[label]]) %>%
     summarise(across(everything(), ~mean(.x, na.rm = TRUE)), .groups = "drop") %>%
     select(-all_of(id))
+  
+  cols_before <- names(d)
   d <- d[sapply(d, function(x) n_distinct(x, na.rm = TRUE) >= 2)]
+  cols_after <- names(d)
+  dropped <- setdiff(cols_before, cols_after)
+  
+  if (length(dropped) > 0) {
+    print(sprintf("[%s] Dropped %d constant features: %s", 
+                  name, length(dropped), paste(dropped, collapse = ", ")))
+  }
+  
   d %>% mutate(across(-all_of(label), ~as.numeric(scale(.x))))
 }
 
 # %% [code]
-all_obs <- to_patient(df)
-first_obs <- to_patient(df %>% filter(observation == 1))
+all_obs <- to_patient(df, "All Observations")
+first_obs <- to_patient(df %>% filter(observation == 1), "First Look Only")
 
 # %% [code]
 print(sprintf("All observations: %d x %d. First only: %d x %d.",
