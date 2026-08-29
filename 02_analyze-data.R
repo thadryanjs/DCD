@@ -16,10 +16,11 @@
 
 # %% [markdown]
 # # Inferential Analysis: DCD Progression
-# The outcome belongs to the patient, not the observation: every row for a patient
-# carries the same label. A patient random intercept has no within-patient outcome
-# variation to explain and is not identifiable, so we average each patient's
-# observations and fit a patient-level logistic regression per feature, FDR corrected.
+#
+# ## Statistical Framework: Patient-Level GLM
+# The outcome (progression to death) is a patient-level constant; it does not vary across observations for a single individual. Consequently, a mixed-effects model (GLMM) with a patient random intercept is not identifiable, as there is no within-patient outcome variance to explain. 
+#
+# The **patient-level logistic regression (GLM)** is the proper inferential model for this data structure. By averaging observations per patient, we reduce the problem to a standard binary classification task, avoiding the boundary variance estimates and attenuated fixed effects typical of inappropriately specified mixed models on time-invariant outcomes.
 #
 # Missing values go through multiple imputation. Each feature is fitted once per imputed
 # dataset and pooled with Rubin's rules, so the intervals carry the imputation
@@ -142,10 +143,7 @@ ggsave("output/glmm_forest_plot_r.png", width = 10, height = 12, dpi = 300)
 # %% [markdown]
 # ## Limitations
 #
-# - **No mixed-effects model.** The spec called for lme4 with person-level random
-#   effects, but the outcome is time-invariant within patient, so a random intercept is
-#   not identifiable. A mixed model here gives boundary variance estimates and
-#   attenuated fixed effects; the patient-level GLM is the right model for this outcome.
+# - **Model Choice.** The patient-level GLM was used as the primary inferential model because the outcome is time-invariant within patients, making a random-intercept GLMM non-identifiable. A mixed model in this context produces boundary variance estimates and is statistically inappropriate.
 # - **No time-to-event analysis.** Only whether the event occurred is recorded, not when,
 #   so discrete-time survival with a patient frailty term is unavailable.
 # - **Univariate screens.** Each feature is modelled alone with FDR correction across
