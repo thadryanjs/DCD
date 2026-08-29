@@ -300,3 +300,27 @@ can be scripted.
   that is a separate fix with its own review.
 - Printing whole frames. Narrow views and artifacts, not `print(df)`.
 - Docstrings. They describe intent; this spec is about evidence.
+
+## Worktree workflow
+
+
+
+```
+# 1. review and merge PR in gh-dash (d, then m)
+
+# 2. root catches up
+git checkout main && git pull
+
+# 3. per worktree with an open PR: rebase AND push
+cd ../Dotfiles-agent2
+git fetch && git rebase origin/main
+git push --force-with-lease
+
+cd ../Dotfiles-agent3
+git fetch && git rebase origin/main
+git push --force-with-lease
+
+cd ~/Vaults/Projects/Dotfiles
+
+# 4. next PR
+```
