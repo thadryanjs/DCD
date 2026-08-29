@@ -101,7 +101,7 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
 
     # **LOADBEARING** — Using GroupShuffleSplit prevents patient-level leakage.
     # Seed pinned to match 01 feature selection split.
-    # Consumed by: `04` analyze-model.py (CV aggregation)
+    # Consumed by: `04` analyze-model.py (reconstruction of training split for SHAP)
     gss = GroupShuffleSplit(n_splits=1, train_size=0.8, random_state=8675309)
     train_idx, test_idx = next(gss.split(x_df, y, groups))
 
