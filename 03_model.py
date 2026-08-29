@@ -222,10 +222,17 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
 
         print(f"\nResults for {name} ({prefix}):")
         for m, scores in outer_metrics.items():
-            mean_s = np.nanmean(scores)
-            std_s = np.nanstd(scores)
-            count = np.count_nonzero(~np.isnan(scores))
-            print(f"  {m:12s}: {mean_s:.3f} (+/- {std_s * 2:.3f}) [n={count}]")
+            clean_scores = np.array(scores)[~np.isnan(scores)]
+            count = len(clean_scores)
+            if count == 0:
+                print(f"  {m:12s}: NaN [n=0]")
+                continue
+            
+            median_s = np.median(clean_scores)
+            min_s = np.min(clean_scores)
+            max_s = np.max(clean_scores)
+            iqr_s = np.percentile(clean_scores, 75) - np.percentile(clean_scores, 25)
+            print(f"  {m:12s}: {median_s:.3f} [{min_s:.3f}, {max_s:.3f}] (IQR: {iqr_s:.3f}) [n={count}]")
 
     cv_results_df = pl.DataFrame(all_cv_results)
     cv_results_path = plots_dir / f"cv_metrics_per_fold_{prefix}.csv"
