@@ -166,6 +166,27 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
     kf_outer = StratifiedGroupKFold(n_splits=10, shuffle=True, random_state=8675309)
     kf_inner = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=8675309)
 
+    # Pre-compute outer folds for transparency and consistency
+    outer_folds = list(kf_outer.split(x_train, y_train, groups=groups_train))
+    
+    print("\n--- Outer Fold Composition (Held-out Portion) ---")
+    fold_comp = []
+    for fold_idx, (tr_idx, te_idx) in enumerate(outer_folds):
+        te_y = y_train[te_idx]
+        te_gr = groups_train[te_idx]
+        
+        fold_comp.append({
+            "fold": fold_idx + 1,
+            "rows": len(te_idx),
+            "patients": len(np.unique(te_gr)),
+            "pos_rows": np.sum(te_y == 1),
+            "pos_patients": len(np.unique(te_gr[te_y == 1])),
+            "neg_rows": np.sum(te_y == 0),
+            "neg_patients": len(np.unique(te_gr[te_y == 0])),
+        })
+    print(pd.DataFrame(fold_comp).to_string(index=False))
+    print("-----------------------------------------------\n")
+
     metrics_to_track = ["accuracy", "precision", "recall", "f1", "auc"]
 
     all_cv_results = []
@@ -174,7 +195,10 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
         print(f"\nEvaluating Model: {name} ({prefix})")
         outer_metrics = {m: [] for m in metrics_to_track}
         
-        for fold_idx, (outer_train_idx, outer_test_idx) in enumerate(kf_outer.split(x_train, y_train, groups=groups_train)):
+        for fold_idx, (outer_train_idx, outer_test_idx) in enumerate(outer_folds):
+            x_tr_out, x_te_out = x_train.iloc[outer_train_idx], x_train.iloc[outer_test_idx]
+            y_tr_out, y_te_out = y_train[outer_train_idx], y_train[outer_test_idx]
+            gr_tr_out = groups_train[outer_train_idx]
             x_tr_out, x_te_out = x_train.iloc[outer_train_idx], x_train.iloc[outer_test_idx]
             y_tr_out, y_te_out = y_train[outer_train_idx], y_train[outer_test_idx]
             gr_tr_out = groups_train[outer_train_idx]
