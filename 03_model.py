@@ -66,6 +66,10 @@ print(f"Loaded model-ready dataset: {df.shape}")
 # %% [markdown]
 # # Feature Identification & Preprocessing
 #
+# For ML, we use in-fold imputation to avoid leakage. The `IterativeImputer` (a Bayesian Ridge 
+# regression-based approach) is fit on the training folds of the outer CV and applied to the 
+# test fold. This ensures that the imputation logic is derived only from the training data.
+#
 # %% [code]
 id_cols = ["alias", "alias_filled", "observation"]
 numeric_cols = [c for c in df.columns if df.schema[c].is_numeric() and c != "progression_to_death" and c not in id_cols]
