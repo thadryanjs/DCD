@@ -212,8 +212,8 @@ if results_path.exists():
     )
 
     plt.xscale('log')
-    plt.title("Pooled Logistic Regression: Odds Ratios (95% CI)\nRed = p_adj < 0.05", fontsize=14)
-    plt.xlabel("Odds Ratio (Log Scale)", fontsize=12)
+    plt.title("Pooled Logistic Regression: Unadjusted Marginal Odds Ratios (95% CI)\nRed = p_adj < 0.05", fontsize=14)
+    plt.xlabel("Unadjusted Marginal Odds Ratio (Log Scale)", fontsize=12)
     plt.ylabel("Features", fontsize=12)
     plt.grid(True, which='both', axis='x', linestyle='--', alpha=0.5)
     plt.tight_layout()

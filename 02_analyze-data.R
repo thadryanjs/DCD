@@ -136,10 +136,10 @@ ggplot(plot_df, aes(or, feature)) +
   geom_point(aes(color = sig), size = 2) +
   scale_x_log10() +
   scale_color_manual(values = c("grey70", "firebrick"), labels = c("ns", "FDR p < 0.05"), name = NULL) +
-  labs(title = "DCD Progression: Patient-Level Odds Ratios (95% CI)",
+  labs(title = "DCD Progression: Unadjusted Marginal Odds Ratios (95% CI)",
        subtitle = sprintf("%d features; %d unstable fits excluded",
                           nrow(plot_df), sum(results$unstable)),
-       x = "Odds ratio per SD (log scale)", y = NULL) +
+       x = "Unadjusted Marginal Odds Ratio per SD (log scale)", y = NULL) +
   theme_minimal()
 
 ggsave("output/glmm_forest_plot_r.png", width = 10, height = 12, dpi = 300)
