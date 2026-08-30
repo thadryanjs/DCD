@@ -175,6 +175,7 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
 
     # Nested Cross-Validation
     kf_inner = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=8675309)
+    kf_outer = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=8675309)
 
     # Pre-compute outer folds for transparency and consistency
     outer_folds = list(kf_outer.split(x_train, y_train, groups=groups_train))

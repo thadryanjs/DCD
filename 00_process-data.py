@@ -113,7 +113,7 @@ def forward_populate_ids(df, timestamp_col=None):
         df = df.sort(["alias_filled", timestamp_col])
         
         # Receipt: Check if original order was already chronological
-        is_sorted = df["_orig_idx"].is_sorted().all()
+        is_sorted = df["_orig_idx"].is_sorted()
         print(f"  Sorting by {timestamp_col}: {'Already chronological' if is_sorted else 'Reordered for chronology'}")
         df = df.drop("_orig_idx")
     
@@ -134,6 +134,7 @@ print("\nAfter forward-fill:\n", forward_populate_ids(demo))
 # We'll look for the first few transitions in the raw Alias column
 raw_aliases = df_neg_raw["Alias"].to_list()
 boundaries = [i for i in range(1, len(raw_aliases)) if raw_aliases[i] != raw_aliases[i-1]]
+neg_sample_start = boundaries[0] if boundaries else 0
 
 df_pos_raw_filled = forward_populate_ids(df_pos_raw, timestamp_col="Date/Time")
 df_neg_raw_filled = forward_populate_ids(df_neg_raw, timestamp_col="Date/Time")
@@ -491,13 +492,13 @@ print(f"Final Dataset Shape: {df_all.shape}")
 # %% [code]
 # Observation distribution per source
 print("\nObservation Value Counts - Positives:")
-print(df_pos.select("observation").value_counts().sort("observation"))
+print(df_pos["observation"].value_counts().sort("observation"))
 
 print("\nObservation Value Counts - Negatives:")
-print(df_neg.select("observation").value_counts().sort("observation"))
+print(df_neg["observation"].value_counts().sort("observation"))
 
 print("\nObservation Value Counts (Combined):")
-print(df_all.select("observation").value_counts().sort("observation"))
+print(df_all["observation"].value_counts().sort("observation"))
 
 print("\nObservations per Patient Distribution (Combined):")
 obs_dist_all = df_all.group_by("alias_filled").agg(pl.len().alias("count"))
