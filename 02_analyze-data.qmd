@@ -1,102 +1,93 @@
-# ---
-# jupyter:
-#   jupytext:
-#     cell_metadata_filter: title,-all
-#     formats: ipynb,R:percent
-#     text_representation:
-#       extension: .R
-#       format_name: percent
-#       format_version: '1.3'
-#       jupytext_version: 1.18.1
-#   kernelspec:
-#     display_name: R
-#     language: R
-#     name: ir
-# ---
+---
+title: 'Statistical Analysis'
+---
 
-# %% [markdown]
-# # Inferential Analysis: DCD Progression
-#
-# ## Statistical Framework: Patient-Level GLM
-# The outcome (progression to death) is a patient-level constant; it does not vary across observations for a single individual. Consequently, a mixed-effects model (GLMM) with a patient random intercept is not identifiable, as there is no within-patient outcome variance to explain. 
-#
-# The **patient-level logistic regression (GLM)** is the proper inferential model for this data structure. By averaging observations per patient, we reduce the problem to a standard binary classification task, avoiding the boundary variance estimates and attenuated fixed effects typical of inappropriately specified mixed models on time-invariant outcomes.
-#
-# Missing values are handled using Multiple Imputation by Chained Equations (MICE) 
-# with $m=5$ imputations. Each feature is fitted once per imputed dataset, and the 
-# results are pooled using Rubin's rules. This allows the final confidence intervals 
-# to account for the uncertainty introduced by the imputation process. 
-#
-# Both the "all observations" and "first-look only" analyses are pooled across 
-# imputations for consistency. Features are scaled, so estimates are per standard deviation.
-#
-# **Note on Interpretation:** The `estimate` in the output CSV is the log-odds per standard deviation of the patient mean. These are unadjusted marginal effects. In `04_analyze-model.py`, these are exponentiated to produce Odds Ratios (OR).
-#
-# %% [code]
+
+## Statistical Framework: Patient-Level GLM
+The outcome (progression to death) is a patient-level constant; it does not vary across observations for a single individual. Consequently, a mixed-effects model (GLMM) with a patient random intercept is not identifiable, as there is no within-patient outcome variance to explain.
+
+The **patient-level logistic regression (GLM)** is the proper inferential model for this data structure. By averaging observations per patient, we reduce the problem to a standard binary classification task, avoiding the boundary variance estimates and attenuated fixed effects typical of inappropriately specified mixed models on time-invariant outcomes.
+
+Missing values are handled using Multiple Imputation by Chained Equations (MICE)
+with $m=5$ imputations. Each feature is fitted once per imputed dataset, and the
+results are pooled using Rubin's rules. This allows the final confidence intervals
+to account for the uncertainty introduced by the imputation process.
+
+Both the "all observations" and "first-look only" analyses are pooled across
+imputations for consistency. Features are scaled, so estimates are per standard deviation.
+
+**Note on Interpretation:** The `estimate` in the output CSV is the log-odds per standard deviation of the patient mean. These are unadjusted marginal effects. In `04_analyze-model.py`, these are exponentiated to produce Odds Ratios (OR).
+
+
+```{r}
 library(tidyverse)
 library(mice)
+library(nanoparquet)
+```
 
-# %% [code]
+```{r}
 label <- "progression_to_death"
 id <- "alias_filled"
 m <- 5
 dir.create("output", showWarnings = FALSE)
 
-df <- read_csv("data/processed/analytic-dataset.csv",
-               guess_max = .Machine$integer.max, show_col_types = FALSE)
+df <- nanoparquet::read_parquet("data/processed/analytic-dataset.parquet")
+```
 
-# %% [code]
+```{r}
 print(sprintf("%d rows, %d patients", nrow(df), n_distinct(df[[id]])))
+```
 
-# %% [markdown]
-# ## Patient-Level Frames
-# Average to one row per patient, drop the id, keep only columns with at least two
-# distinct values, then scale. The distinct-value filter matters: a constant column
-# becomes all `NaN` under `scale()` and makes mice fail with an unhelpful error.
-#
-# %% [code]
+## Patient-Level Frames
+Average to one row per patient, drop the id, keep only columns with at least two
+distinct values, then scale. The distinct-value filter matters: a constant column
+becomes all `NaN` under `scale()` and makes mice fail with an unhelpful error.
+
+```{r}
 to_patient <- function(d, name = "unnamed") {
   d <- d %>%
     select(-observation) %>%
     group_by(.data[[id]], .data[[label]]) %>%
     summarise(across(everything(), ~mean(.x, na.rm = TRUE)), .groups = "drop") %>%
     select(-all_of(id))
-  
+
   cols_before <- names(d)
   d <- d[sapply(d, function(x) n_distinct(x, na.rm = TRUE) >= 2)]
   cols_after <- names(d)
   dropped <- setdiff(cols_before, cols_after)
-  
+
   if (length(dropped) > 0) {
-    print(sprintf("[%s] Dropped %d constant features: %s", 
+    print(sprintf("[%s] Dropped %d constant features: %s",
                   name, length(dropped), paste(dropped, collapse = ", ")))
   }
-  
+
   d %>% mutate(across(-all_of(label), ~as.numeric(scale(.x))))
 }
+```
 
-# %% [code]
+```{r}
 all_obs <- to_patient(df, "All Observations")
 first_obs <- to_patient(df %>% filter(observation == 1), "First Look Only")
+```
 
-# %% [code]
+```{r}
 print(sprintf("All observations: %d x %d. First only: %d x %d.",
               nrow(all_obs), ncol(all_obs), nrow(first_obs), ncol(first_obs)))
+```
 
-# %% [markdown]
-# ## Fit
-# Two loops: features outside, imputations inside, because a feature needs one fit per
-# imputed dataset before those fits can be pooled. A fitted probability pinned at 0 or 1
-# means the fit separated, which glm reports as a warning rather than an error, so it is
-# checked directly and flagged.
-#
-# %% [code]
+## Fit
+Two loops: features outside, imputations inside, because a feature needs one fit per
+imputed dataset before those fits can be pooled. A fitted probability pinned at 0 or 1
+means the fit separated, which glm reports as a warning rather than an error, so it is
+checked directly and flagged.
+
+```{r}
 analyze <- function(d) {
   # **LOADBEARING** — Multiple Imputation (m=5) accounts for missing data uncertainty.
   # Seed is pinned to match ML pipeline for reproducibility.
   # Consumed by: `data/processed/feature_analysis.csv`
   imp <- mice(d, m = m, printFlag = FALSE, seed = 8675309)
-  
+
   # Imputation Provenance: Log events (collinear columns, etc.)
   # If loggedEvents > 0, mice stripped columns; results may be biased.
   print(sprintf("mice logged events: %d", NROW(imp$loggedEvents)))
@@ -104,7 +95,7 @@ analyze <- function(d) {
     print("mice stripped columns due to collinearity/constant values:")
     print(imp$loggedEvents)
   }
-  
+
   out <- NULL
   for (f in setdiff(names(d), label)) {
     fits <- list()
@@ -126,8 +117,9 @@ analyze <- function(d) {
   }
   out %>% mutate(p_adj = p.adjust(p_value, "fdr")) %>% arrange(p_value)
 }
+```
 
-# %% [code]
+```{r}
 results <- analyze(all_obs)
 first_results <- analyze(first_obs)
 
@@ -157,25 +149,28 @@ if (nrow(unstable_results) > 0) {
 } else {
     print("No unstable fits detected.")
 }
+```
 
-# %% [code]
+```{r}
 print(sprintf("Significant (FDR, stable fits): %d of %d. Unstable: %d.",
               sum(results$p_adj < 0.05 & !results$unstable),
               nrow(results), sum(results$unstable)))
+```
 
-# %% [code]
+```{r}
 print(head(results, 15))
+```
 
-# %% [code]
+```{r}
 write_csv(results, "data/processed/feature_analysis.csv")
 write_csv(first_results, "data/processed/first_look_analysis.csv")
+```
 
-# %% [markdown]
-# ## Forest Plot
-# Odds ratios per SD. Unstable fits are excluded: their intervals span orders of
-# magnitude and would flatten everything else on a log axis.
-#
-# %% [code]
+## Forest Plot
+Odds ratios per SD. Unstable fits are excluded: their intervals span orders of
+magnitude and would flatten everything else on a log axis.
+
+```{r}
 plot_df <- results %>%
   filter(!unstable) %>%
   mutate(or = exp(estimate), lo = exp(ci_low), hi = exp(ci_high), sig = p_adj < 0.05) %>%
@@ -195,29 +190,31 @@ ggplot(plot_df, aes(or, feature)) +
   theme_minimal()
 
 ggsave("output/glmm_forest_plot_r.png", width = 10, height = 12, dpi = 300)
+```
 
-# %% [markdown]
-# ## Limitations
-#
-# - **Multiple Testing.** We apply FDR correction (Benjamini-Hochberg) across all univariate fits. 
-#   The resulting p_adj indicates the proportion of false discoveries expected among 
-#   significant features.
-# - **Inferential Nature.** Pooled Odds Ratios are unadjusted. They identify strong candidate 
-#   drivers but do not account for confounders.
-# - **No mixed-effects model.** The spec called for lme4 with person-level random
-#   effects, but the outcome is time-invariant within patient, so a random intercept is
-#   not identifiable. A mixed model here gives boundary variance estimates and
-#   attenuated fixed effects; the patient-level GLM is the right model for this outcome.
-# - **No time-to-event analysis.** Only whether the event occurred is recorded, not when,
-#   so discrete-time survival with a patient frailty term is unavailable.
-# - **Univariate screens.** Each feature is modelled alone with FDR correction across
-#   features. The odds ratios are unadjusted, not independent effects.
-# - **Equal patient weighting.** Averaging gives a patient with twelve observations the
-#   same weight as one with two.
-# - **Imputation ignores clustering** and uses every other column as a predictor. Check
-#   the logged-events count above if the patient count is small.
-# - **Feature correlation** is covered in `01_explore-data.py`; not duplicated here.
-# - **Pin the mice version.** `pool` summary column names have changed across releases.
-#
-# %% [code]
+## Limitations
+
+- **Multiple Testing.** We apply FDR correction (Benjamini-Hochberg) across all univariate fits.
+  The resulting p_adj indicates the proportion of false discoveries expected among
+  significant features.
+- **Inferential Nature.** Pooled Odds Ratios are unadjusted. They identify strong candidate
+  drivers but do not account for confounders.
+- **No mixed-effects model.** The spec called for lme4 with person-level random
+  effects, but the outcome is time-invariant within patient, so a random intercept is
+  not identifiable. A mixed model here gives boundary variance estimates and
+  attenuated fixed effects; the patient-level GLM is the right model for this outcome.
+- **No time-to-event analysis.** Only whether the event occurred is recorded, not when,
+  so discrete-time survival with a patient frailty term is unavailable.
+- **Univariate screens.** Each feature is modelled alone with FDR correction across
+  features. The odds ratios are unadjusted, not independent effects.
+- **Equal patient weighting.** Averaging gives a patient with twelve observations the
+  same weight as one with two.
+- **Imputation ignores clustering** and uses every other column as a predictor. Check
+  the logged-events count above if the patient count is small.
+- **Feature correlation** is covered in `01_explore-data.py`; not duplicated here.
+- **Pin the mice version.** `pool` summary column names have changed across releases.
+
+```{r}
 print("Analysis complete.")
+```
+

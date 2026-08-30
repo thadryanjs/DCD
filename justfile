@@ -1,62 +1,69 @@
+### DCD pipeline
+#
+# pixi manages both the Python and R environments. Quarto renders the book
+
 format:
-    uv run black *.py
+    pixi run ruff format *.qmd || pixi run black *.py
 
-setup:
-    mkdir -p book
-
+# Render one chapter at a time. Quarto caches via freeze, so re-rendering
+# only re-executes chapters whose source changed.
 process-data:
-    just setup
-    uv run jupytext --to notebook --execute 00_process-data.py
-    mv 00_process-data.ipynb book/
-    touch book/report.qmd
+    pixi run quarto render 00_process-data.qmd
 
 explore-data:
-    uv run jupytext --to notebook --execute 01_explore-data.py
-    mv 01_explore-data.ipynb book/
-    touch book/report.qmd
+    pixi run quarto render 01_explore-data.qmd
 
-analyze-data: # install R deps first
-    uv run jupytext --to notebook --execute 02_analyze-data.R
-    mv 02_analyze-data.ipynb book/
-    touch book/report.qmd
+analyze-data:
+    pixi run quarto render 02_analyze-data.qmd
 
 model:
-    uv run jupytext --to notebook --execute 03_model.py
-    mv 03_model.ipynb book/
-    touch book/report.qmd
+    pixi run quarto render 03_model.qmd
 
 analyze-model:
-    uv run jupytext --to notebook --execute 04_analyze-model.py
-    mv 04_analyze-model.ipynb book/
-    touch book/report.qmd
+    pixi run quarto render 04_analyze-model.qmd
 
+secondary-check:
+    pixi run quarto render 05_secondary-check.qmd
 
-# needs fortran
-install-r-deps:
-    Rscript -e "install.packages(c('arrow', 'tidyverse', 'lme4', 'lmerTest', 'broom.mixed', 'corrplot', 'mice', 'IRkernel'), repos='https://cloud.r-project.org')"
-    Rscript -e "IRkernel::installspec(user = TRUE)"
-
+# Full book. Chapter order comes from _quarto.yml, not from this recipe.
 run-all:
-    just process-data
-    just explore-data
-    just analyze-data
-    just model
-    just analyze-model
-    cp -r output book/
+    pixi run quarto render
 
-preview-report:
-    uv run quarto preview book/report.qmd
+# Force a full recompute, ignoring the freeze cache. Use when data changed
+# rather than code.
+run-all-fresh:
+    rm -rf _freeze
+    pixi run quarto render
 
-render-report:
-	uv run quarto render book/report.qmd --to html
-	uv run quarto render book/report.qmd --to pdf
+preview:
+    pixi run quarto preview
+
+render-html:
+    pixi run quarto render --to html
+
+# Needs the pdf format enabled in _quarto.yml and a tex install:
+#   pixi run quarto install tinytex
+render-pdf:
+    pixi run quarto render --to pdf
+
+# R packages come from conda-forge via pixi, so there is no install-r-deps
+# step and no fortran toolchain needed. If a package is missing from
+# conda-forge, add it here as a documented exception rather than reintroducing
+# a whole Rscript install step.
+check-env:
+    pixi run python -c "import polars, sklearn, xgboost, shap; print('python ok')"
+    pixi run Rscript -e "library(tidyverse); library(mice); cat('r ok\n')"
+    pixi run quarto --version
 
 bundle:
     mkdir -p shipment/plots shipment/data shipment/book
-    cp output/*.png shipment/plots/
-    cp output/*.csv shipment/plots/
-    cp output/*.txt shipment/plots/
-    cp data/processed/* shipment/data/
-    cp book/*.ipynb shipment/book/
-    cp *.py *.R justfile spec.md review.md shipment/
-    echo "✓ Results bundle created in shipment/ (Plots in shipment/plots/)"
+    cp output/*.png shipment/plots/ 2>/dev/null || true
+    cp output/*.csv shipment/plots/ 2>/dev/null || true
+    cp data/processed/*.parquet shipment/data/ 2>/dev/null || true
+    cp data/processed/*.csv shipment/data/ 2>/dev/null || true
+    cp -r _book/* shipment/book/
+    cp *.qmd _quarto.yml pixi.toml pixi.lock justfile spec.md shipment/
+    echo "Bundle created in shipment/ (rendered book in shipment/book/)"
+
+clean:
+    rm -rf _book _freeze .quarto shipment

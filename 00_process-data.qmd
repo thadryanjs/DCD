@@ -1,0 +1,504 @@
+---
+title: Data Processing
+---
+
+A step-by-step proof of the data pipeline. We discover issues in the raw data and fix them immediately.
+
+## 0. Setup
+
+```{r}
+library(dplyr)
+library(readxl)
+library(tidyr)
+library(stringr)
+library(nanoparquet)
+```
+
+## 1. Load and show raw
+
+```{r}
+df_pos_raw <- read_excel("data/positive-cases-Jennys-data-Edited.xlsx") %>%
+  mutate(row_number = row_number())
+
+df_neg_raw <- read_excel("data/negative-cases-ANR-Data.xlsx") %>%
+  mutate(row_number = row_number())
+```
+
+Looking at raw data. The ID column (`Alias`) in the negative set contains merged cells (read as NAs).
+
+```{r}
+df_pos_raw %>% select(row_number, Alias) %>% head(27)
+```
+
+```{r}
+df_pos_raw %>% select(row_number, Alias) %>% tail(27)
+```
+
+```{r}
+df_neg_raw %>% select(row_number, Alias) %>% head(27)
+```
+
+```{r}
+df_neg_raw %>% select(row_number, Alias) %>% tail(27)
+```
+
+```{r}
+print(sprintf("Positive dimensions: %d x %d", nrow(df_pos_raw), ncol(df_pos_raw)))
+print(sprintf("Negative dimensions: %d x %d", nrow(df_neg_raw), ncol(df_neg_raw)))
+```
+
+## 2. Empty rows
+
+We filter completely empty rows before any other processing.
+
+```{r}
+# Positive empty rows
+pos_empty_rows <- df_pos_raw %>% filter(if_all(everything(), is.na))
+```
+
+```{r}
+pos_empty_rows
+```
+
+```{r}
+# Negative empty rows
+neg_empty_rows <- df_neg_raw %>% filter(if_all(everything(), is.na))
+```
+
+```{r}
+neg_empty_rows
+```
+
+```{r}
+# Filter and print count
+rows_before_pos <- nrow(df_pos_raw)
+df_pos_raw <- df_pos_raw %>% filter(!if_all(everything(), is.na))
+rows_after_pos <- nrow(df_pos_raw)
+
+rows_before_neg <- nrow(df_neg_raw)
+df_neg_raw <- df_neg_raw %>% filter(!if_all(everything(), is.na))
+rows_after_neg <- nrow(df_neg_raw)
+
+print(sprintf("Positive empty rows dropped: %d", rows_before_pos - rows_after_pos))
+print(sprintf("Negative empty rows dropped: %d", rows_before_neg - rows_after_neg))
+```
+
+## 3. Forward-fill the ID
+
+**LOADBEARING** — `observation` numbering derives from this, and every first-look analysis derives from `observation == 1`.
+Consumed by: `01` first-look panel, `02` first-look GLM, `03` first-look models.
+
+The `Alias` column in the negative dataset uses merged cells, which appear as NAs. We propagate the ID downward.
+
+```{r}
+# Positive view before
+before_head_pos <- df_pos_raw %>% select(row_number, Alias) %>% head(27)
+before_tail_pos <- df_pos_raw %>% select(row_number, Alias) %>% tail(27)
+```
+
+```{r}
+# Positive mutation
+na_before_pos <- sum(is.na(df_pos_raw$Alias))
+df_pos_raw <- df_pos_raw %>% fill(Alias, .direction = "down")
+na_after_pos <- sum(is.na(df_pos_raw$Alias))
+
+after_head_pos <- df_pos_raw %>% select(row_number, Alias) %>% head(27)
+after_tail_pos <- df_pos_raw %>% select(row_number, Alias) %>% tail(27)
+
+print(sprintf("Positive Alias NAs filled: %d of %d", na_before_pos - na_after_pos, na_before_pos))
+```
+
+```{r}
+before_head_pos
+```
+
+```{r}
+after_head_pos
+```
+
+```{r}
+before_tail_pos
+```
+
+```{r}
+after_tail_pos
+```
+
+```{r}
+# Negative view before
+before_head_neg <- df_neg_raw %>% select(row_number, Alias) %>% head(27)
+before_tail_neg <- df_neg_raw %>% select(row_number, Alias) %>% tail(27)
+```
+
+```{r}
+# Negative mutation
+na_before_neg <- sum(is.na(df_neg_raw$Alias))
+df_neg_raw <- df_neg_raw %>% fill(Alias, .direction = "down")
+na_after_neg <- sum(is.na(df_neg_raw$Alias))
+
+after_head_neg <- df_neg_raw %>% select(row_number, Alias) %>% head(27)
+after_tail_neg <- df_neg_raw %>% select(row_number, Alias) %>% tail(27)
+
+print(sprintf("Negative Alias NAs filled: %d of %d", na_before_neg - na_after_neg, na_before_neg))
+```
+
+```{r}
+before_head_neg
+```
+
+```{r}
+after_head_neg
+```
+
+```{r}
+before_tail_neg
+```
+
+```{r}
+after_tail_neg
+```
+
+## 4. Observation numbering
+
+We assign a sequential `observation` number within each ID group.
+
+```{r}
+# Verify row order is observation order (by checking if Alias is sorted)
+# We sort explicitly to be safe and transparent.
+df_pos_raw <- df_pos_raw %>% arrange(Alias, `Date/Time`)
+df_neg_raw <- df_neg_raw %>% arrange(Alias, `Date/Time`)
+```
+
+```{r}
+df_pos_raw <- df_pos_raw %>% group_by(Alias) %>% mutate(observation = row_number()) %>% ungroup()
+df_neg_raw <- df_neg_raw %>% group_by(Alias) %>% mutate(observation = row_number()) %>% ungroup()
+```
+
+Showing a slice spanning ID boundaries.
+
+```{r}
+df_neg_raw %>%
+  select(row_number, Alias, observation) %>%
+  slice(10:20)
+```
+
+Print distribution of observations per patient.
+
+```{r}
+pos_obs_dist <- df_pos_raw %>% count(Alias, name = "n")
+neg_obs_dist <- df_neg_raw %>% count(Alias, name = "n")
+
+print("Positive Observation Distribution:")
+print(summary(pos_obs_dist$n))
+
+print("Negative Observation Distribution:")
+print(summary(neg_obs_dist$n))
+```
+
+```{r}
+min_pos <- min(pos_obs_dist$n)
+min_neg <- min(neg_obs_dist$n)
+print(sprintf("Min observation count - Positive: %d, Negative: %d", min_pos, min_neg))
+if(min_pos < 1 || min_neg < 1) stop("Minimum observation must be 1")
+```
+
+## 5. Column names
+
+**LOADBEARING** — the cleaner permits hyphens, and a hyphenated column name parses as subtraction inside a formula. `02` backticks its formulas for this reason.
+Consumed by: `02` model formulas.
+
+We normalize column names to lowercase, replacing spaces and slashes with underscores, and removing non-alphanumeric characters (except underscores and hyphens).
+
+```{r}
+clean_name <- function(name) {
+  name <- trimws(name)
+  name <- gsub("/", "_", name)
+  name <- gsub(" ", "_", name)
+  name <- gsub("[^a-zA-Z0-9_-]", "", name)
+  return(tolower(name))
+}
+
+# Positive mapping
+old_pos <- names(df_pos_raw)
+new_pos <- clean_name(old_pos)
+map_pos <- data.frame(old = old_pos, new = new_pos, stringsAsFactors = FALSE)
+
+# Negative mapping
+old_neg <- names(df_neg_raw)
+new_neg <- clean_name(old_neg)
+map_neg <- data.frame(old = old_neg, new = new_neg, stringsAsFactors = FALSE)
+```
+
+Positive column mapping:
+
+```{r}
+map_pos
+```
+
+Negative column mapping:
+
+```{r}
+map_neg
+```
+
+Audit for non-standard characters (outside `[a-z0-9_-]`).
+
+```{r}
+all_cleaned <- c(map_pos$new, map_neg$new)
+weird <- all_cleaned[grepl("[^a-z0-9_-]", all_cleaned)]
+if(length(weird) > 0) {
+  print("Names with non-standard characters:")
+  print(weird)
+} else {
+  print("✓ All cleaned names follow [a-z0-9_-] pattern.")
+}
+```
+
+Apply the cleaning.
+
+```{r}
+names(df_pos_raw) <- new_pos
+names(df_neg_raw) <- new_neg
+```
+
+## 6. Semantic alignment
+
+We align columns that represent the same measurement but have different names.
+
+Candidates for alignment:
+
+```{r}
+# BMI candidates
+pos_bmi <- grep("bmi", names(df_pos_raw), value = TRUE)
+neg_bmi <- grep("bmi", names(df_neg_raw), value = TRUE)
+# O2 candidates
+pos_o2 <- grep("o2", names(df_pos_raw), value = TRUE)
+neg_o2 <- grep("o2", names(df_neg_raw), value = TRUE)
+```
+
+Showing candidates side by side.
+
+```{r}
+# Positive BMI/O2 head
+df_pos_raw %>% select(all_of(c(pos_bmi, pos_o2))) %>% head(27)
+```
+
+```{r}
+# Negative BMI/O2 head
+df_neg_raw %>% select(all_of(c(neg_bmi, neg_o2))) %>% head(27)
+```
+
+Applying renames.
+
+```{r}
+semantic_map <- c(
+  "bmicalc" = "bmi",
+  "o2sat" = "o2_sat"
+)
+
+# Positive renames
+pos_to_rename <- names(semantic_map)[names(semantic_map) %in% names(df_pos_raw)]
+df_pos_raw <- df_pos_raw %>%
+  rename_with(~ semantic_map[.x], .cols = all_of(pos_to_rename))
+
+# Negative renames
+neg_to_rename <- names(semantic_map)[names(semantic_map) %in% names(df_neg_raw)]
+df_neg_raw <- df_neg_raw %>%
+  rename_with(~ semantic_map[.x], .cols = all_of(neg_to_rename))
+
+print(sprintf("Positive renames fired: %s", paste(pos_to_rename, collapse = ", ")))
+print(sprintf("Negative renames fired: %s", paste(neg_to_rename, collapse = ", ")))
+```
+
+## 7. Labels
+
+Assign 1 to positives, 0 to negatives.
+
+```{r}
+df_pos_raw <- df_pos_raw %>% mutate(progression_to_death = 1)
+df_neg_raw <- df_neg_raw %>% mutate(progression_to_death = 0)
+```
+
+```{r}
+df_pos_raw %>% count(progression_to_death)
+```
+
+```{r}
+df_neg_raw %>% count(progression_to_death)
+```
+
+## 8. Type alignment
+
+We identify columns present in both workbooks with differing types.
+
+```{r}
+common_cols <- intersect(names(df_pos_raw), names(df_neg_raw))
+mismatches <- lapply(common_cols, function(col) {
+  type_pos <- class(df_pos_raw[[col]])[1]
+  type_neg <- class(df_neg_raw[[col]])[1]
+  if(type_pos != type_neg) {
+    return(data.frame(
+      column = col,
+      pos_type = type_pos,
+      neg_type = type_neg,
+      pos_sample = paste(head(df_pos_raw[[col]], 3), collapse = ", "),
+      neg_sample = paste(head(df_neg_raw[[col]], 3), collapse = ", "),
+      stringsAsFactors = FALSE
+    ))
+  }
+  return(NULL)
+})
+
+mismatch_df <- bind_rows(mismatches)
+```
+
+Type mismatches:
+
+```{r}
+mismatch_df
+```
+
+### Datetime alignment
+
+```{r}
+# All-null columns in negative dataset: set to typed NA
+datetime_nulls <- c("date_time_of_declaration_tod", "date_time_of_pea_asystole", "date_time_of_perfusion")
+for(col in datetime_nulls) {
+  df_neg_raw[[col]] <- as.POSIXct(NA)
+}
+```
+
+```{r}
+# Parsing date_time_sbp__90
+na_before <- sum(is.na(df_neg_raw$date_time_sbp__90))
+df_neg_raw$date_time_sbp__90 <- as.POSIXct(df_neg_raw$date_time_sbp__90, format = "%Y-%m-%d %H:%M:%S")
+na_after <- sum(is.na(df_neg_raw$date_time_sbp__90))
+print(sprintf("date_time_sbp__90 NAs: %d -> %d", na_before, na_after))
+if(na_after > na_before) stop("NA count increased during date parsing")
+```
+
+### Integer alignment
+
+```{r}
+int_nulls <- c("dcd_nrp_total_pump_time", "extubation_to_perfusion_warm_ischemic_time",
+               "sbp90_to_declaration", "tod_to_perfusion", "warm_ischemic_time_agonal_phase_to_cooling")
+
+for(col in int_nulls) {
+  na_before <- sum(is.na(df_neg_raw[[col]]))
+  df_neg_raw[[col]] <- as.integer(df_neg_raw[[col]])
+  na_after <- sum(is.na(df_neg_raw[[col]]))
+  print(sprintf("%s NAs: %d -> %d", col, na_before, na_after))
+  if(na_after > na_before) stop(sprintf("NA count increased during int cast for %s", col))
+}
+```
+
+## 9. Namespace the patient IDs
+
+**LOADBEARING** — both workbooks number patients from 1. Without the prefix, `pos_1` and `neg_1` collapse into one group, which corrupts patient counts, degrades group-aware stratification, and makes the group structure meaningless.
+Consumed by: `01` patient counts, `02` patient-level aggregation, `03` group splits.
+
+```{r}
+pos_ids_before <- n_distinct(df_pos_raw$alias)
+neg_ids_before <- n_distinct(df_neg_raw$alias)
+
+df_pos_raw <- df_pos_raw %>% mutate(alias = paste0("pos_", alias))
+df_neg_raw <- df_neg_raw %>% mutate(alias = paste0("neg_", alias))
+
+pos_ids_after <- n_distinct(df_pos_raw$alias)
+neg_ids_after <- n_distinct(df_neg_raw$alias)
+```
+
+```{r}
+print(sprintf("Unique IDs - Pos: %d -> %d", pos_ids_before, pos_ids_after))
+print(sprintf("Unique IDs - Neg: %d -> %d", neg_ids_before, neg_ids_after))
+```
+
+```{r}
+df_pos_raw %>% select(alias) %>% head(27)
+```
+
+```{r}
+df_neg_raw %>% select(alias) %>% head(27)
+```
+
+## 10. Combine
+
+**LOADBEARING** — a column populated in one workbook and absent or empty in the other is a perfect proxy for the label. The missingness filter in `01` is what catches these, so a reader needs to see the list here to know what that filter is doing.
+Consumed by: `01` missingness filter and leak exclusion list.
+
+```{r}
+df_all <- bind_rows(df_pos_raw, df_neg_raw)
+```
+
+Asymmetric columns:
+
+```{r}
+cols_pos <- names(df_pos_raw)
+cols_neg <- names(df_neg_raw)
+
+pos_only <- setdiff(cols_pos, cols_neg)
+neg_only <- setdiff(cols_neg, cols_pos)
+both <- intersect(cols_pos, cols_neg)
+
+print(sprintf("Columns in both: %d", length(both)))
+print(sprintf("Columns in Positives only: %d", length(pos_only)))
+print(sprintf("Columns in Negatives only: %d", length(neg_only)))
+```
+
+```{r}
+pos_only
+```
+
+```{r}
+neg_only
+```
+
+```{r}
+print(sprintf("Final dimensions: %d x %d", nrow(df_all), ncol(df_all)))
+```
+
+## 11. Drop the scaffolding
+
+We remove `row_number` before writing.
+
+```{r}
+df_all <- df_all %>% select(-row_number)
+```
+
+```{r}
+names(df_all)
+```
+
+## 12. Write
+
+```{r}
+nanoparquet::write_parquet(df_all, "data/processed/combined-dataset.parquet")
+```
+
+```{r}
+print(sprintf("Saved to data/processed/combined-dataset.parquet"))
+print(sprintf("Dimensions: %d x %d", nrow(df_all), ncol(df_all)))
+```
+
+Final Summary:
+
+```{r}
+df_all %>%
+  group_by(progression_to_death) %>%
+  summarise(
+    rows = n(),
+    patients = n_distinct(alias)
+  )
+```
+
+```{r}
+df_all %>%
+  group_by(progression_to_death, alias) %>%
+  summarise(obs = n(), .groups = "drop") %>%
+  group_by(progression_to_death) %>%
+  summarise(
+    avg_obs = mean(obs),
+    max_obs = max(obs),
+    min_obs = min(obs)
+  )
+```

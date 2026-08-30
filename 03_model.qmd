@@ -1,35 +1,22 @@
-# ---
-# jupyter:
-#   jupytext:
-#     cell_metadata_filter: title,-all
-#     formats: ipynb,py:percent
-#     text_representation:
-#       extension: .py
-#       format_name: percent
-#       format_version: '1.3'
-#       jupytext_version: 1.18.1
-#   kernelspec:
-#     display_name: Python 3 (ipykernel)
-#     language: python
-#     name: python3
-# ---
+---
+title: 'Predictive Modeling'
+---
 
-# %% [markdown]
-# # Model Evaluation: Binary Classification
-# This script evaluates three classifier architectures (Logistic Regression, Random Forest, XGBoost) 
-# to predict patient outcomes while strictly preventing data leakage.
-#
-# ## Strategy: Group-Aware Validation
-# To prevent "patient-level leakage" (where the model memorizes a specific patient's characteristics), 
-# we use Group-Aware Splitting. 
-#
-# - **Grouping Variable**: `alias_filled`
-# - **Split**: `GroupShuffleSplit` (80% Train / 20% Test)
-# - **CV**: 3x5 Repeated `StratifiedGroupKFold` (Outer) / 5-Fold (Inner)
-#
-# This ensures that all observations from a single patient stay within the same fold.
-#
-# %% [code]
+This script evaluates three classifier architectures (Logistic Regression, Random Forest, XGBoost)
+to predict patient outcomes while strictly preventing data leakage.
+
+## Strategy: Group-Aware Validation
+To prevent "patient-level leakage" (where the model memorizes a specific patient's characteristics),
+we use Group-Aware Splitting.
+
+- **Grouping Variable**: `alias_filled`
+- **Split**: `GroupShuffleSplit` (80% Train / 20% Test)
+- **CV**: 3x5 Repeated `StratifiedGroupKFold` (Outer) / 5-Fold (Inner)
+
+This ensures that all observations from a single patient stay within the same fold.
+
+
+```{python}
 import polars as pl
 from pathlib import Path
 import matplotlib
@@ -48,49 +35,54 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score, roc_auc_score
 from xgboost import XGBClassifier
 from utils import get_preprocessor
+```
 
-# %% [code]
+```{python}
 data_dir = Path("data/processed")
 plots_dir = Path("output")
 plots_dir.mkdir(parents=True, exist_ok=True)
+```
 
-# %% [markdown]
-# # Load Data
-#
-# %% [code]
+# Load Data
+
+```{python}
 df = pl.read_parquet(data_dir / "analytic-dataset.parquet")
+```
 
-# %% [code]
+```{python}
 print(f"Loaded model-ready dataset: {df.shape}")
+```
 
-# %% [markdown]
-# # Feature Identification & Preprocessing
-#
-# For ML, we use in-fold imputation to avoid leakage. The `IterativeImputer` (a Bayesian Ridge 
-# regression-based approach) is fit on the training folds of the outer CV and applied to the 
-# test fold. This ensures that the imputation logic is derived only from the training data.
-#
-# %% [code]
+# Feature Identification & Preprocessing
+
+For ML, we use in-fold imputation to avoid leakage. The `IterativeImputer` (a Bayesian Ridge
+regression-based approach) is fit on the training folds of the outer CV and applied to the
+test fold. This ensures that the imputation logic is derived only from the training data.
+
+```{python}
 id_cols = ["alias", "alias_filled", "observation"]
 numeric_cols = [c for c in df.columns if df.schema[c].is_numeric() and c != "progression_to_death" and c not in id_cols]
 categorical_cols = [c for c in df.columns if not df.schema[c].is_numeric() and c != "progression_to_death" and c not in id_cols]
+```
 
-# %% [code]
+```{python}
+#| lines_to_next_cell: 1
 # Preprocessor is now built inside run_ml_pipeline to avoid global scope issues
 print(
     f"Feature set identified:\n"
     f"  Numeric: {len(numeric_cols)}\n"
     f"  Categorical: {len(categorical_cols)}"
 )
+```
 
-# %% [markdown]
-# # Model Pipeline Definition
-# We wrap the entire training and evaluation process to compare "Full Dataset" vs "First Look Only".
-#
-# %% [code]
+# Model Pipeline Definition
+We wrap the entire training and evaluation process to compare "Full Dataset" vs "First Look Only".
+
+```{python}
+#| lines_to_next_cell: 1
 def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
     print(f"Running Pipeline: {prefix}")
-    
+
     # Build preprocessor inside function to ensure consistency with arguments
     preprocessor = get_preprocessor(numeric_cols, categorical_cols)
 
@@ -112,18 +104,18 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
     # Split Receipt
     train_patients = len(np.unique(groups_train))
     test_patients = len(np.unique(groups_test))
-    
+
     # Class balance
     train_pos_rows = np.sum(y_train == 1)
     train_neg_rows = np.sum(y_train == 0)
     train_pos_pts = len(np.unique(groups_train[y_train == 1]))
     train_neg_pts = len(np.unique(groups_train[y_train == 0]))
-    
+
     test_pos_rows = np.sum(y_test == 1)
     test_neg_rows = np.sum(y_test == 0)
     test_pos_pts = len(np.unique(groups_test[y_test == 1]))
     test_neg_pts = len(np.unique(groups_test[y_test == 0]))
-    
+
     print(
         f"Split ({prefix}):\n"
         f"  Train shape: {x_train.shape} ({train_patients} patients)\n"
@@ -179,13 +171,13 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
 
     # Pre-compute outer folds for transparency and consistency
     outer_folds = list(kf_outer.split(x_train, y_train, groups=groups_train))
-    
+
     print("\n--- Outer Fold Composition (Held-out Portion) ---")
     fold_comp = []
     for fold_idx, (tr_idx, te_idx) in enumerate(outer_folds):
         te_y = y_train[te_idx]
         te_gr = groups_train[te_idx]
-        
+
         fold_comp.append({
             "fold": fold_idx + 1,
             "rows": len(te_idx),
@@ -201,20 +193,20 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
     metrics_to_track = ["accuracy", "precision", "recall", "f1", "auc"]
 
     all_cv_results = []
-    
+
     for name in pipelines.keys():
         print(f"\nEvaluating Model: {name} ({prefix})")
-        
+
         # 3x5 Repeated Outer CV
         for repeat in range(3):
             kf_outer = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=8675309 + repeat)
             repeat_metrics = {m: [] for m in metrics_to_track}
-            
+
             for fold_idx, (outer_train_idx, outer_test_idx) in enumerate(kf_outer.split(x_train, y_train, groups=groups_train)):
                 x_tr_out, x_te_out = x_train.iloc[outer_train_idx], x_train.iloc[outer_test_idx]
                 y_tr_out, y_te_out = y_train[outer_train_idx], y_train[outer_test_idx]
                 gr_tr_out = groups_train[outer_train_idx]
-                
+
                 grid = GridSearchCV(
                     estimator=pipelines[name],
                     param_grid=param_grids[name],
@@ -222,23 +214,23 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
                     scoring="roc_auc",
                     n_jobs=-1
                 )
-                
+
                 grid.fit(x_tr_out, y_tr_out, groups=gr_tr_out)
                 best_model = grid.best_estimator_
                 y_pred = best_model.predict(x_te_out)
                 y_prob = best_model.predict_proba(x_te_out)[:, 1]
-                
+
                 # Compute metrics individually to prevent AUC failure from zeroing others
                 acc = accuracy_score(y_te_out, y_pred)
                 prec = precision_score(y_te_out, y_pred, zero_division=0)
                 rec = recall_score(y_te_out, y_pred, zero_division=0)
                 f1 = f1_score(y_te_out, y_pred, zero_division=0)
-                
+
                 try:
                     auc = roc_auc_score(y_te_out, y_prob)
                 except ValueError:
                     auc = np.nan
-                
+
                 fold_results = {
                     "accuracy": acc,
                     "precision": prec,
@@ -246,7 +238,7 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
                     "f1": f1,
                     "auc": auc,
                 }
-                
+
                 for m, val in fold_results.items():
                     repeat_metrics[m].append(val)
                     all_cv_results.append({
@@ -272,7 +264,7 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
             if len(clean_scores) == 0:
                 print(f"  {m:12s}: NaN")
                 continue
-            
+
             median_s = np.median(clean_scores)
             min_s = np.min(clean_scores)
             max_s = np.max(clean_scores)
@@ -298,13 +290,13 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
     all_feature_names = best_rf.named_steps['pre'].get_feature_names_out()
 
     importances = best_rf.named_steps['clf'].feature_importances_
-    
+
     # Transparency: Assert feature name count matches importance count
     assert len(all_feature_names) == len(importances), (
         f"Feature name count {len(all_feature_names)} != importance count {len(importances)}"
     )
     print(f"Confirmed: {len(all_feature_names)} features in, {len(importances)} importances out")
-    
+
     feat_imp_df = pd.DataFrame({'feature': all_feature_names, 'importance': importances})
     feat_imp_df = feat_imp_df.sort_values('importance', ascending=False)
 
@@ -317,7 +309,7 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
 
     # Final Test Set Validation
     model_final_params = {}
-    
+
     for name in pipelines.keys():
         print(f"\nEvaluating {name} on Test Set ({prefix})...")
         grid = GridSearchCV(
@@ -329,12 +321,12 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
         )
         grid.fit(x_train, y_train, groups=groups_train)
         best_model = grid.best_estimator_
-        
+
         model_final_params[name] = grid.best_params_
-        
+
         model_filename = f"{prefix}_{name.lower().replace(' ', '_')}_model.joblib"
         joblib.dump(best_model, data_dir / model_filename)
-        
+
         y_pred = best_model.predict(x_test)
         y_prob = best_model.predict_proba(x_test)[:, 1]
         print(
@@ -363,21 +355,23 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
         plt.tight_layout()
         plt.savefig(plots_dir / f"cv_{metric}_boxplot_{prefix}.png")
         plt.close()
+```
 
-# %% [markdown]
-# ## First Look Only Analysis
-# Evaluate models using only the first observation per patient to remove time-series bias.
-# This is our primary analysis as it represents the most conservative estimate.
-#
-# %% [code]
+## First Look Only Analysis
+Evaluate models using only the first observation per patient to remove time-series bias.
+This is our primary analysis as it represents the most conservative estimate.
+
+```{python}
 df_first_look = df.filter(pl.col("observation") == 1)
 run_ml_pipeline(df_first_look, numeric_cols, categorical_cols, prefix="first_look")
+```
 
-# %% [markdown]
-# ## Full Dataset Analysis
-# Evaluate models using all available observations.
-# This serves as an optimistic upper bound; the performance gap between this and the
-# "First Look" analysis is used as a diagnostic for late-observation leakage.
-#
-# %% [code]
+## Full Dataset Analysis
+Evaluate models using all available observations.
+This serves as an optimistic upper bound; the performance gap between this and the
+"First Look" analysis is used as a diagnostic for late-observation leakage.
+
+```{python}
 run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full")
+```
+

@@ -24,3 +24,6 @@
 .ipynb_checkpoints/
 __pycache__/
 .venv/
+# pixi environments
+.pixi/*
+!.pixi/config.toml
