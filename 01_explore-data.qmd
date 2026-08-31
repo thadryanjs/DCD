@@ -338,7 +338,7 @@ Threshold: 0.01 (raw unscaled variance). This is unit-dependent and primarily ca
 # Compute variance on all numeric columns
 numeric_all <- df %>% select(where(is.numeric)) %>% names()
 var_vals <- df %>%
-  summarise(across(all_of(numeric_all), var)) %>%
+  summarise(across(all_of(numeric_all), ~var(.x, na.rm = TRUE))) %>%
   pivot_longer(everything(), names_to = "feature", values_to = "variance")
 
 var_dropped_table <- var_vals %>%

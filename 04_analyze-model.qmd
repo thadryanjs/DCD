@@ -51,7 +51,7 @@ print(f"Loaded analytic dataset: {df.shape}")
 ```{python}
 id_cols = ["alias", "alias_filled", "observation"]
 numeric_cols = [c for c in df.columns if df.schema[c].is_numeric() and c != "progression_to_death" and c not in id_cols]
-categorical_cols = [c for c in df.columns if not df.schema[c].is_numeric() and c != "progression_to_death" and c not in id_cols]
+categorical_cols = [c for c in df.columns if not df.schema[c].is_numeric() and not df.schema[c].is_temporal() and c != "progression_to_death" and c not in id_cols]
 ```
 
 ```{python}
@@ -309,6 +309,7 @@ dir_df.to_csv(plots_dir / f"rf_feature_directions_{prefix}.csv", index=False)
 
 print("\nTop Feature Directions:")
 print(dir_df.head(10).to_string(index=False))
+```
 
 # Feature Agreement Analysis
 We compare the top drivers between the "Full" and "First Look" ML models to verify
@@ -333,7 +334,6 @@ if other_dir_path.exists():
     print(f"Shared Features: {list(intersection)}")
 else:
     print("\nSkipping Agreement Analysis: The other direction file is missing.")
-```
 ```
 
 # Robustness & Cross-Design Agreement

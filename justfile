@@ -26,8 +26,11 @@ secondary-check:
     pixi run quarto render 05_secondary-check.qmd
 
 # Full book. Chapter order comes from _quarto.yml, not from this recipe.
+render-all:
+    just run-all
+
 run-all:
-    pixi run quarto render
+    pixi run quarto render *.qmd
 
 # Force a full recompute, ignoring the freeze cache. Use when data changed
 # rather than code.

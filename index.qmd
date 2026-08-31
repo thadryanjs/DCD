@@ -1,0 +1,12 @@
+---
+title: "DCD Analysis Pipeline"
+---
+
+This project evaluates predictive modeling for patient outcomes.
+
+## Chapters
+- [Process Data](00_process-data.qmd)
+- [Explore Data](01_explore-data.qmd)
+- [Analyze Data](02_analyze-data.qmd)
+- [Predictive Modeling](03_model.qmd)
+- [Model Explainability](04_analyze-model.qmd)

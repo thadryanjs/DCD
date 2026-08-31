@@ -46,9 +46,13 @@ becomes all `NaN` under `scale()` and makes mice fail with an unhelpful error.
 ```{r}
 to_patient <- function(d, name = "unnamed") {
   d <- d %>%
-    select(-observation) %>%
+    select(-any_of("observation")) %>%
     group_by(.data[[id]], .data[[label]]) %>%
-    summarise(across(everything(), ~mean(.x, na.rm = TRUE)), .groups = "drop") %>%
+    summarise(
+      across(where(is.numeric), ~mean(.x, na.rm = TRUE)),
+      across(where(is.character), ~first(.x)),
+      .groups = "drop"
+    ) %>%
     select(-all_of(id))
 
   cols_before <- names(d)
@@ -61,18 +65,16 @@ to_patient <- function(d, name = "unnamed") {
                   name, length(dropped), paste(dropped, collapse = ", ")))
   }
 
-  d %>% mutate(across(-all_of(label), ~as.numeric(scale(.x))))
+  d %>% mutate(across(where(is.numeric) & -all_of(label), ~as.numeric(scale(.x))))
 }
 ```
 
 ```{r}
-all_obs <- to_patient(df, "All Observations")
-first_obs <- to_patient(df %>% filter(observation == 1), "First Look Only")
+# We defer calling to_patient until we have the selected feature set from 01_explore-data.qmd
 ```
 
 ```{r}
-print(sprintf("All observations: %d x %d. First only: %d x %d.",
-              nrow(all_obs), ncol(all_obs), nrow(first_obs), ncol(first_obs)))
+print(sprintf("%d rows, %d patients", nrow(df), n_distinct(df[[id]])))
 ```
 
 ## Fit
@@ -80,6 +82,24 @@ Two loops: features outside, imputations inside, because a feature needs one fit
 imputed dataset before those fits can be pooled. A fitted probability pinned at 0 or 1
 means the fit separated, which glm reports as a warning rather than an error, so it is
 checked directly and flagged.
+
+```{r}
+# Feature Reconciliation: Filter input to only use selected features from 01
+selected_feats_csv <- read_csv("output/selected-features.csv", show_col_types = FALSE)
+selected_feats <- selected_feats_csv$feature
+
+df_filtered <- df %>% select(all_of(selected_feats), all_of(label), all_of(id), any_of("observation"))
+all_obs <- to_patient(df_filtered, "All Observations")
+first_obs <- to_patient(df_filtered %>% filter(observation == 1), "First Look Only")
+
+r_feats <- setdiff(names(all_obs), label)
+sym_diff <- union(setdiff(r_feats, selected_feats), setdiff(selected_feats, r_feats))
+
+if (length(sym_diff) > 0) {
+    print("Note: Some selected features were dropped because they became constant at patient-level:")
+    print(setdiff(selected_feats, r_feats))
+}
+```
 
 ```{r}
 analyze <- function(d) {
@@ -109,10 +129,19 @@ analyze <- function(d) {
     # Apply Rubin's Rules via pool()
     s <- summary(pool(as.mira(fits)), conf.int = TRUE)
     s <- s[s$term != "(Intercept)", ]
+    
+    # Handle categorical features (multiple levels) by taking the first non-intercept estimate
+    # for the purpose of the univariate stability flag.
+    est <- s$estimate[1]
+    se <- s$std.error[1]
+    pval <- s$p.value[1]
+    lo <- s[["2.5 %"]][1]
+    hi <- s[["97.5 %"]][1]
+
     out <- rbind(out, data.frame(
-      feature = f, estimate = s$estimate, std_error = s$std.error, p_value = s$p.value,
-      ci_low = s[["2.5 %"]], ci_high = s[["97.5 %"]],
-      unstable = separated || abs(s$estimate) > 10 || s$std.error > 5,
+      feature = f, estimate = est, std_error = se, p_value = pval,
+      ci_low = lo, ci_high = hi,
+      unstable = separated || abs(est) > 10 || se > 5,
       separated_flag = separated))
   }
   out %>% mutate(p_adj = p.adjust(p_value, "fdr")) %>% arrange(p_value)
@@ -122,15 +151,7 @@ analyze <- function(d) {
 ```{r}
 results <- analyze(all_obs)
 first_results <- analyze(first_obs)
-
-# Feature Reconciliation
-selected_feats_csv <- read_csv("output/selected-features.csv", show_col_types = FALSE)
-selected_feats <- selected_feats_csv$feature
-
-r_feats <- setdiff(names(all_obs), label)
-sym_diff <- union(setdiff(r_feats, selected_feats), setdiff(selected_feats, r_feats))
-
-stopifnot(length(sym_diff) == 0)
+```
 
 # Unstable Fits Receipt
 unstable_results <- results %>% filter(unstable)

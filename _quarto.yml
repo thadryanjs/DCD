@@ -1,0 +1,26 @@
+project:
+  type: book
+  output-dir: _book
+
+book:
+  title: "DCD Analysis Pipeline"
+  author: "Research Pipeline"
+  date: last-modified
+  chapters:
+    - index.qmd
+    - 00_process-data.qmd
+    - 01_explore-data.qmd
+    - 02_analyze-data.qmd
+    - 03_model.qmd
+    - 04_analyze-model.qmd
+
+execute:
+  freeze: auto
+
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    theme: cosmo
+    code-fold: false

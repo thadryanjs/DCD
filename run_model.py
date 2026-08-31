@@ -1,22 +1,3 @@
----
-title: 'Predictive Modeling'
----
-
-This script evaluates three classifier architectures (Logistic Regression, Random Forest, XGBoost)
-to predict patient outcomes while strictly preventing data leakage.
-
-## Strategy: Group-Aware Validation
-To prevent "patient-level leakage" (where the model memorizes a specific patient's characteristics),
-we use Group-Aware Splitting.
-
-- **Grouping Variable**: `alias_filled`
-- **Split**: `GroupShuffleSplit` (80% Train / 20% Test)
-- **CV**: 3x5 Repeated `StratifiedGroupKFold` (Outer) / 5-Fold (Inner)
-
-This ensures that all observations from a single patient stay within the same fold.
-
-
-```{python}
 import polars as pl
 from pathlib import Path
 import matplotlib
@@ -35,37 +16,19 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score, roc_auc_score
 from xgboost import XGBClassifier
 from utils import get_preprocessor
-```
 
-```{python}
 data_dir = Path("data/processed")
 plots_dir = Path("output")
 plots_dir.mkdir(parents=True, exist_ok=True)
-```
 
-# Load Data
-
-```{python}
 df = pl.read_parquet(data_dir / "analytic-dataset.parquet")
-```
 
-```{python}
 print(f"Loaded model-ready dataset: {df.shape}")
-```
 
-# Feature Identification & Preprocessing
-
-For ML, we use in-fold imputation to avoid leakage. The `IterativeImputer` (a Bayesian Ridge
-regression-based approach) is fit on the training folds of the outer CV and applied to the
-test fold. This ensures that the imputation logic is derived only from the training data.
-
-```{python}
 id_cols = ["alias", "alias_filled", "observation"]
 numeric_cols = [c for c in df.columns if df.schema[c].is_numeric() and c != "progression_to_death" and c not in id_cols]
 categorical_cols = [c for c in df.columns if not df.schema[c].is_numeric() and not df.schema[c].is_temporal() and c != "progression_to_death" and c not in id_cols]
-```
 
-```{python}
 #| lines_to_next_cell: 1
 # Preprocessor is now built inside run_ml_pipeline to avoid global scope issues
 print(
@@ -73,12 +36,7 @@ print(
     f"  Numeric: {len(numeric_cols)}\n"
     f"  Categorical: {len(categorical_cols)}"
 )
-```
 
-# Model Pipeline Definition
-We wrap the entire training and evaluation process to compare "Full Dataset" vs "First Look Only".
-
-```{python}
 #| lines_to_next_cell: 1
 def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
     print(f"Running Pipeline: {prefix}")
@@ -376,23 +334,8 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
         plt.tight_layout()
         plt.savefig(plots_dir / f"cv_{metric}_boxplot_{prefix}.png")
         plt.close()
-```
 
-## First Look Only Analysis
-Evaluate models using only the first observation per patient to remove time-series bias.
-This is our primary analysis as it represents the most conservative estimate.
-
-```{python}
 df_first_look = df.filter(pl.col("observation") == 1)
 run_ml_pipeline(df_first_look, numeric_cols, categorical_cols, prefix="first_look")
-```
 
-## Full Dataset Analysis
-Evaluate models using all available observations.
-This serves as an optimistic upper bound; the performance gap between this and the
-"First Look" analysis is used as a diagnostic for late-observation leakage.
-
-```{python}
 run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full")
-```
-
