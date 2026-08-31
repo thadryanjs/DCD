@@ -175,8 +175,8 @@ else:
     shap_values_class1 = shap_values
 
 # Transparency: Assert feature name count matches SHAP width
-assert shap_values_class1.shape[1] == len(all_feature_names), (
-    f"SHAP value width {shap_values_class1.shape[1]} != feature name count {len(all_feature_names)}"
+assert len(all_feature_names) == shap_values_class1.shape[1], (
+    f"{len(all_feature_names)} names vs {shap_values_class1.shape[1]} SHAP columns"
 )
 ```
 
@@ -247,10 +247,10 @@ if results_path.exists():
     plt.ylabel("Features", fontsize=12)
     plt.grid(True, which='both', axis='x', linestyle='--', alpha=0.5)
     plt.tight_layout()
-    plt.savefig(plots_dir / f"glmm_forest_plot_{prefix}.png")
+    plt.savefig(plots_dir / f"pooled_glm_forest_plot_{prefix}.png")
     plt.close()
 
-    print(f"✓ Pooled Logistic Regression Forest plot saved to {plots_dir / f'glmm_forest_plot_{prefix}.png'}")
+    print(f"✓ Pooled Logistic Regression Forest plot saved to {plots_dir / f'pooled_glm_forest_plot_{prefix}.png'}")
 
     print("\nTop Pooled Odds Ratios:")
     print(plot_df[['feature', 'OR', 'p_adj']].head(10).to_string(index=False))
@@ -259,8 +259,9 @@ else:
 ```
 
 # Feature Directionality Analysis
-We calculate the correlation between SHAP values and feature values to determine
-if a feature is a "Risk Factor" or "Protective Factor".
+We use a median split of feature values to determine if a feature is a "Risk Factor" or "Protective Factor"
+based on the average SHAP contribution for high vs low values. This approach is used instead of
+correlation to avoid assuming linearity.
 
 ```{python}
 directions = []
@@ -301,6 +302,9 @@ for i, col in enumerate(all_feature_names):
 
 ```{python}
 dir_df = pd.DataFrame(directions).sort_values("importance", ascending=False)
+neutral_count = len(dir_df[dir_df["direction"] == "Neutral/Non-linear"])
+print(f"Directionality Analysis: {neutral_count} features identified as Neutral/Non-linear")
+
 dir_df.to_csv(plots_dir / f"rf_feature_directions_{prefix}.csv", index=False)
 
 print("\nTop Feature Directions:")
