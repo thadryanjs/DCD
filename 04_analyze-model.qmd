@@ -101,7 +101,7 @@ model_filename = f"{prefix}_random_forest_model.joblib"
 model_path = data_dir / model_filename
 if model_path.exists():
     rf_pipeline = joblib.load(model_path)
-    print(f"✓ Loaded Random Forest model from {model_path}")
+    print(f"✓ Loaded Random Forest model artifact: {model_path.name} (Path: {model_path})")
 else:
     print(f"ERROR: RF model artifact {model_filename} not found. Please run 03_model.py first.")
     raise FileNotFoundError(f"Could not find {model_path}")
@@ -114,7 +114,7 @@ print("✓ Random Forest model ready for explainability.")
 # CV Performance Summary
 We aggregate the per-fold metrics to understand the stability of the AUC.
 
-**LOADBEARING** — Aggregating over 10 folds ensures results are not driven by a
+Aggregating over folds ensures results are not driven by a
 "lucky" split. Consumed by: Final Report.
 
 ```{python}
@@ -123,14 +123,14 @@ if cv_metrics_path.exists():
     cv_df = pl.read_csv(cv_metrics_path).to_pandas()
 
     # Pivot to get metrics per model
-    summary_metrics = cv_df.groupby(["model", "metric"])["value"].agg(["mean", "std", "min", "max"]).reset_index()
+    summary_metrics = cv_df.groupby(["model", "metric"])["value"].agg(["median", "min", "max"]).reset_index()
 
-    print(f"\n--- Nested CV Summary ({prefix}) ---")
+    print(f"\nNested CV Summary ({prefix})")
     print(summary_metrics[summary_metrics["metric"] == "auc"].to_string(index=False))
 
     # AUC stability check
     auc_vals = cv_df[cv_df["metric"] == "auc"]["value"]
-    print(f"AUC Range: {auc_vals.min():.3f} to {auc_vals.max():.3f} (SD: {auc_vals.std():.3f})")
+    print(f"AUC Range: {auc_vals.min():.3f} to {auc_vals.max():.3f} (Median: {auc_vals.median():.3f})")
 else:
     print("WARNING: CV metrics file not found. Skipping summary.")
 ```
@@ -323,11 +323,12 @@ other_prefix = "first_look" if prefix == "full" else "full"
 other_dir_path = plots_dir / f"rf_feature_directions_{other_prefix}.csv"
 
 if other_dir_path.exists():
+    # Use in-memory dir_df for current design to avoid reading stale output from disk
     df_curr = dir_df.sort_values("importance", ascending=False).head(10)
     df_other = pd.read_csv(other_dir_path).sort_values("importance", ascending=False).head(10)
 
     intersection = set(df_curr["feature"]).intersection(set(df_other["feature"]))
-    print(f"\n--- Feature Agreement (Top 10) ---")
+    print(f"\nFeature Agreement (Top 10)")
     print(f"Full vs First Look Intersection: {len(intersection)} / 10")
     print(f"Shared Features: {list(intersection)}")
 else:
