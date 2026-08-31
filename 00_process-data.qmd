@@ -1,6 +1,3 @@
----
-title: Data Processing
----
 
 A step-by-step proof of the data pipeline. We discover issues in the raw data and fix them immediately.
 
@@ -14,7 +11,12 @@ library(stringr)
 library(nanoparquet)
 ```
 
+
 ## 1. Load and show raw
+
+
+
+
 
 ```{r}
 df_pos_raw <- read_excel("data/positive-cases-Jennys-data-Edited.xlsx") %>%
@@ -427,7 +429,7 @@ df_neg_raw %>% select(alias) %>% head(27)
 Consumed by: `01` missingness filter and leak exclusion list.
 
 ```{r}
-df_all <- bind_rows(df_pos_raw, df_neg_raw) %>% 
+df_all <- bind_rows(df_pos_raw, df_neg_raw) %>%
   mutate(alias_filled = alias)
 ```
 

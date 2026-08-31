@@ -46,15 +46,6 @@ render-html:
 render-pdf:
     pixi run quarto render --to pdf
 
-# R packages come from conda-forge via pixi, so there is no install-r-deps
-# step and no fortran toolchain needed. If a package is missing from
-# conda-forge, add it here as a documented exception rather than reintroducing
-# a whole Rscript install step.
-check-env:
-    pixi run python -c "import polars, sklearn, xgboost, shap; print('python ok')"
-    pixi run Rscript -e "library(tidyverse); library(mice); cat('r ok\n')"
-    pixi run quarto --version
-
 bundle:
     mkdir -p shipment/plots shipment/data shipment/book
     cp output/*.png shipment/plots/ 2>/dev/null || true
@@ -67,3 +58,6 @@ bundle:
 
 clean:
     rm -rf _book _freeze .quarto shipment
+
+start-kernel:
+  pixi run jupyter notebook --no-browser

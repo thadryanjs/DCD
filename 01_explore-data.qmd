@@ -29,10 +29,10 @@ df %>% count(progression_to_death)
 Patients per class and observations per patient.
 
 ```{r}
-df %>% 
-  group_by(progression_to_death, alias_filled) %>% 
-  summarise(obs = n(), .groups = "drop") %>% 
-  group_by(progression_to_death) %>% 
+df %>%
+  group_by(progression_to_death, alias_filled) %>%
+  summarise(obs = n(), .groups = "drop") %>%
+  group_by(progression_to_death) %>%
   summarise(
     count = n(),
     avg_obs = mean(obs),
@@ -44,10 +44,10 @@ df %>%
 Observations-per-patient distribution. This variance informs the equal-weighting limitation in the patient-level GLM.
 
 ```{r}
-df %>% 
-  group_by(progression_to_death, alias_filled) %>% 
-  summarise(obs = n(), .groups = "drop") %>% 
-  count(progression_to_death, obs) %>% 
+df %>%
+  group_by(progression_to_death, alias_filled) %>%
+  summarise(obs = n(), .groups = "drop") %>%
+  count(progression_to_death, obs) %>%
   arrange(progression_to_death, obs)
 ```
 
@@ -57,30 +57,30 @@ Quantify variance within patients relative to population variance.
 
 ```{r}
 # Identify numeric features (excluding label and ID)
-numeric_cols <- df %>% 
-  select(where(is.numeric)) %>% 
-  select(-any_of(c("progression_to_death", "observation", "alias", "alias_filled"))) %>% 
+numeric_cols <- df %>%
+  select(where(is.numeric)) %>%
+  select(-any_of(c("progression_to_death", "observation", "alias", "alias_filled"))) %>%
   names()
 
 stability_results <- lapply(numeric_cols, function(col) {
   global_sd <- sd(df[[col]], na.rm = TRUE)
   if(is.na(global_sd) || global_sd == 0) return(NULL)
-  
-  within_sd <- df %>% 
-    group_by(alias_filled) %>% 
-    summarise(s = sd(!!sym(col), na.rm = TRUE), .groups = "drop") %>% 
-    filter(!is.na(s)) %>% 
-    pull(s) %>% 
+
+  within_sd <- df %>%
+    group_by(alias_filled) %>%
+    summarise(s = sd(!!sym(col), na.rm = TRUE), .groups = "drop") %>%
+    filter(!is.na(s)) %>%
+    pull(s) %>%
     mean()
-  
+
   if(is.na(within_sd)) return(NULL)
-  
+
   data.frame(feature = col, ratio = within_sd / global_sd, stringsAsFactors = FALSE)
 }) %>% bind_rows() %>% arrange(ratio)
 ```
 
 ```{r}
-stability_results %>% 
+stability_results %>%
   mutate(status = if_else(ratio < 0.3, "Stable", "Volatile"))
 ```
 
@@ -88,7 +88,7 @@ stability_results %>%
 print(sprintf("Average Stability Ratio: %.3f", mean(stability_results$ratio)))
 ```
 
-**Interpretation:** The Stability Ratio ($\frac{\text{mean}(\sigma_{\text{patient}})}{\sigma_{\text{global}}}$) justifies the "First Look Only" design. A ratio < 0.3 suggests repeated observations are largely redundant. 
+**Interpretation:** The Stability Ratio ($\frac{\text{mean}(\sigma_{\text{patient}})}{\sigma_{\text{global}}}$) justifies the "First Look Only" design. A ratio < 0.3 suggests repeated observations are largely redundant.
 
 Note that `global_sd` is computed on pooled data across both classes, meaning it includes between-class variance, which makes the ratio flatter than a true within-versus-between patient comparison.
 
@@ -97,10 +97,10 @@ Note that `global_sd` is computed on pooled data across both classes, meaning it
 Missing count and percent per column.
 
 ```{r}
-missing_stats <- df %>% 
-  summarise(across(everything(), ~sum(is.na(.x)))) %>% 
-  pivot_longer(everything(), names_to = "feature", values_to = "null_count") %>% 
-  mutate(null_pct = null_count / nrow(df) * 100) %>% 
+missing_stats <- df %>%
+  summarise(across(everything(), ~sum(is.na(.x)))) %>%
+  pivot_longer(everything(), names_to = "feature", values_to = "null_count") %>%
+  mutate(null_pct = null_count / nrow(df) * 100) %>%
   arrange(desc(null_pct))
 ```
 
@@ -112,18 +112,18 @@ missing_stats
 Consumed by: the missingness filter, and the leak discussion in `00`'s concat provenance.
 
 ```{r}
-missing_by_class <- df %>% 
-  group_by(progression_to_death) %>% 
-  summarise(across(everything(), ~sum(is.na(.x)))) %>% 
+missing_by_class <- df %>%
+  group_by(progression_to_death) %>%
+  summarise(across(everything(), ~sum(is.na(.x)))) %>%
   pivot_longer(-progression_to_death, names_to = "feature", values_to = "null_count")
 
 class_totals <- df %>% count(progression_to_death)
 
-missing_by_class <- missing_by_class %>% 
-  left_join(class_totals, by = "progression_to_death") %>% 
-  mutate(null_pct = null_count / n * 100) %>% 
-  filter(null_count > 0) %>% 
-  select(feature, progression_to_death, null_count, null_pct) %>% 
+missing_by_class <- missing_by_class %>%
+  left_join(class_totals, by = "progression_to_death") %>%
+  mutate(null_pct = null_count / n * 100) %>%
+  filter(null_count > 0) %>%
+  select(feature, progression_to_death, null_count, null_pct) %>%
   pivot_wider(names_from = progression_to_death, values_from = c(null_count, null_pct), names_sep = "_")
 ```
 
@@ -136,15 +136,15 @@ Missingness Heatmap.
 ```{r}
 # Downsample for heatmap
 set.seed(8675309)
-heatmap_df <- df %>% 
-  select(all_of(numeric_cols)) %>% 
-  mutate(across(everything(), ~as.factor(as.integer(is.na(.x))))) %>% 
+heatmap_df <- df %>%
+  select(all_of(numeric_cols)) %>%
+  mutate(across(everything(), ~as.factor(as.integer(is.na(.x))))) %>%
   slice_sample(n = min(nrow(.), 1000))
 
 # Note: ggplot2 heatmap usually requires long format
-heatmap_long <- heatmap_df %>% 
-  mutate(row_id = row_number()) %>% 
-  pivot_longer(-row_id) %>% 
+heatmap_long <- heatmap_df %>%
+  mutate(row_id = row_number()) %>%
+  pivot_longer(-row_id) %>%
   mutate(value = as.factor(value))
 
 ggplot(heatmap_long, aes(x = name, y = row_id, fill = value)) +
@@ -158,12 +158,12 @@ ggplot(heatmap_long, aes(x = name, y = row_id, fill = value)) +
 Distribution of missing features per row.
 
 ```{r}
-df %>% 
-  select(all_of(numeric_cols)) %>% 
-  mutate(across(everything(), ~as.integer(is.na(.x)))) %>% 
-  rowSums() %>% 
-  table() %>% 
-  as.data.frame() %>% 
+df %>%
+  select(all_of(numeric_cols)) %>%
+  mutate(across(everything(), ~as.integer(is.na(.x)))) %>%
+  rowSums() %>%
+  table() %>%
+  as.data.frame() %>%
   setNames(c("missing_count", "row_count"))
 ```
 
@@ -172,7 +172,7 @@ df %>%
 We check if modelling results are visible in raw data using **first observations only** (one row per patient).
 
 ```{r}
-df_first <- df %>% 
+df_first <- df %>%
   filter(observation == 1)
 ```
 
@@ -182,16 +182,16 @@ Numeric separation (Wilcoxon rank-sum).
 numeric_sep <- lapply(numeric_cols, function(col) {
   pos_vals <- df_first %>% filter(progression_to_death == 1) %>% pull(!!sym(col))
   neg_vals <- df_first %>% filter(progression_to_death == 0) %>% pull(!!sym(col))
-  
+
   if(length(pos_vals) < 1 || length(neg_vals) < 1) return(NULL)
-  
+
   # Use a tryCatch to avoid crashing on degenerate data (e.g. all NAs)
   test_res <- tryCatch({
     wilcox.test(pos_vals, neg_vals)
   }, error = function(e) NULL)
-  
+
   if(is.null(test_res)) return(NULL)
-  
+
   data.frame(
     feature = col,
     pos_median = median(pos_vals, na.rm = TRUE),
@@ -209,21 +209,21 @@ numeric_sep
 Categorical separation (Fisher/Chi-sq).
 
 ```{r}
-categorical_cols <- df %>% 
-  select(where(is.character)) %>% 
-  select(-any_of(c("alias", "alias_filled"))) %>% 
+categorical_cols <- df %>%
+  select(where(is.character)) %>%
+  select(-any_of(c("alias", "alias_filled"))) %>%
   names()
 
 cat_sep <- lapply(categorical_cols, function(col) {
   tab <- table(df_first[[col]], df_first$progression_to_death)
   if(nrow(tab) < 2 || ncol(tab) < 2) return(NULL)
-  
+
   test_res <- tryCatch({
     if(any(tab < 5)) fisher.test(tab) else chisq.test(tab)
   }, error = function(e) NULL)
-  
+
   if(is.null(test_res)) return(NULL)
-  
+
   data.frame(
     feature = col,
     p_value = test_res$p.value,
@@ -242,9 +242,9 @@ Top 9 features by separation (visual).
 # Pick top 9 numeric features by p-value
 top_9 <- head(numeric_sep$feature, 9)
 
-df_first %>% 
-  select(progression_to_death, all_of(top_9)) %>% 
-  pivot_longer(-progression_to_death) %>% 
+df_first %>%
+  select(progression_to_death, all_of(top_9)) %>%
+  pivot_longer(-progression_to_death) %>%
   ggplot(aes(x = factor(progression_to_death), y = value)) +
   geom_boxplot(outlier.shape = NA) +
   geom_jitter(width = 0.2, alpha = 0.5) +
@@ -295,12 +295,12 @@ candidates <- names(df)
 before_exc <- candidates
 exc_dropped_table <- tibble(
   feature = all_excludes,
-  reason = if_else(all_excludes %in% leak_justifications$feature, 
-                   leak_justifications$reason[match(all_excludes, leak_justifications$feature)], 
+  reason = if_else(all_excludes %in% leak_justifications$feature,
+                   leak_justifications$reason[match(all_excludes, leak_justifications$feature)],
                    "Manual/ID Exclusion")
 )
 candidates <- setdiff(before_exc, exc_dropped_table$feature)
-print(sprintf("Exclusions: %d in, %d out, %d dropped", 
+print(sprintf("Exclusions: %d in, %d out, %d dropped",
               length(before_exc), length(candidates), nrow(exc_dropped_table)))
 ```
 
@@ -314,16 +314,16 @@ Threshold: 10%.
 
 ```{r}
 before_miss <- candidates
-missing_vals <- df %>% 
-  summarise(across(all_of(candidates), ~sum(is.na(.x)) / n() * 100)) %>% 
+missing_vals <- df %>%
+  summarise(across(all_of(candidates), ~sum(is.na(.x)) / n() * 100)) %>%
   pivot_longer(everything(), names_to = "feature", values_to = "pct")
 
-miss_dropped_table <- missing_vals %>% 
-  filter(pct > 10) %>% 
+miss_dropped_table <- missing_vals %>%
+  filter(pct > 10) %>%
   select(feature, reason = pct)
 
 candidates <- setdiff(before_miss, miss_dropped_table$feature)
-print(sprintf("Missingness: %d in, %d out, %d dropped", 
+print(sprintf("Missingness: %d in, %d out, %d dropped",
               length(before_miss), length(candidates), nrow(miss_dropped_table)))
 ```
 
@@ -339,17 +339,17 @@ Threshold: 0.01 (raw unscaled variance). This is unit-dependent and primarily ca
 before_var <- candidates
 numeric_candidates <- candidates[sapply(candidates, function(c) is.numeric(df[[c]]))]
 
-var_vals <- df %>% 
-  summarise(across(all_of(numeric_candidates), var)) %>% 
+var_vals <- df %>%
+  summarise(across(all_of(numeric_candidates), var)) %>%
   pivot_longer(everything(), names_to = "feature", values_to = "variance")
 
-var_dropped_table <- var_vals %>% 
-  filter(variance < 0.01 | is.na(variance)) %>% 
+var_dropped_table <- var_vals %>%
+  filter(variance < 0.01 | is.na(variance)) %>%
   mutate(reason = sprintf("%.4f", variance)) %>%
   select(feature, reason)
 
 candidates <- setdiff(before_var, var_dropped_table$feature)
-print(sprintf("Variance: %d in, %d out, %d dropped", 
+print(sprintf("Variance: %d in, %d out, %d dropped",
               length(before_var), length(candidates), nrow(var_dropped_table)))
 ```
 
@@ -365,10 +365,10 @@ We report highly correlated numeric features (|r| > 0.9). This section reports p
 numeric_final <- candidates[sapply(candidates, function(c) is.numeric(df[[c]]))]
 cor_matrix <- cor(df %>% select(all_of(numeric_final)), use = "pairwise.complete.obs")
 
-cor_pairs <- as.data.frame(as.table(cor_matrix)) %>% 
-  filter(Var1 != Var2) %>% 
-  filter(abs(Freq) > 0.9) %>% 
-  distinct(Var1, Var2, .keep_all = TRUE) %>% 
+cor_pairs <- as.data.frame(as.table(cor_matrix)) %>%
+  filter(Var1 != Var2) %>%
+  filter(abs(Freq) > 0.9) %>%
+  distinct(Var1, Var2, .keep_all = TRUE) %>%
   rename(feature1 = Var1, feature2 = Var2, r = Freq)
 ```
 
@@ -384,7 +384,7 @@ if(nrow(cor_pairs) > 0) {
 
 ```{r}
 # Analytic dataset: Selected features + scaffolding
-df_analytic <- df %>% 
+df_analytic <- df %>%
   select(all_of(candidates), any_of(c("alias_filled", "observation", "progression_to_death")))
 
 nanoparquet::write_parquet(df_analytic, "data/processed/analytic-dataset.parquet")
@@ -392,9 +392,9 @@ nanoparquet::write_parquet(df_analytic, "data/processed/analytic-dataset.parquet
 
 ```{r}
 # Selected features artifact
-feature_artifact <- missing_vals %>% 
-  left_join(var_vals, by = "feature") %>% 
-  filter(feature %in% candidates) %>% 
+feature_artifact <- missing_vals %>%
+  left_join(var_vals, by = "feature") %>%
+  filter(feature %in% candidates) %>%
   select(feature, missing_pct = pct, variance)
 
 write.csv(feature_artifact, "output/selected-features.csv", row.names = FALSE)
