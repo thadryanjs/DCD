@@ -123,23 +123,14 @@ analyze <- function(d) {
 results <- analyze(all_obs)
 first_results <- analyze(first_obs)
 
-# Feature Reconciliation Receipt
-# Compare R features against selected-features.csv from 01
+# Feature Reconciliation
 selected_feats_csv <- read_csv("output/selected-features.csv", show_col_types = FALSE)
 selected_feats <- selected_feats_csv$feature
 
 r_feats <- setdiff(names(all_obs), label)
-diff_feats <- setdiff(r_feats, selected_feats)
 sym_diff <- union(setdiff(r_feats, selected_feats), setdiff(selected_feats, r_feats))
 
-print("--- Feature Reconciliation Receipt ---")
-print(sprintf("R features: %d | ML selected: %d", length(r_feats), length(selected_feats)))
-if (length(sym_diff) == 0) {
-    print("✓ Feature sets perfectly aligned.")
-} else {
-    print("Symmetric difference (features in one but not both):")
-    print(sym_diff)
-}
+stopifnot(length(sym_diff) == 0)
 
 # Unstable Fits Receipt
 unstable_results <- results %>% filter(unstable)
