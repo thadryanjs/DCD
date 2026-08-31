@@ -18,6 +18,8 @@
 !*.yml
 !*.qmd
 !*.md
+!*.toml
+!*.lock
 
 # Block noise directories explicitly
 .quarto/

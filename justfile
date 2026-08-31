@@ -47,20 +47,19 @@ render-pdf:
     pixi run quarto render --to pdf
 
 bundle:
-    mkdir -p reports/ship/plots reports/ship/data reports/ship/book
+    mkdir -p reports/ship/plots reports/ship/data reports/ship/html
     cp output/*.png reports/ship/plots/ 2>/dev/null || true
     cp output/*.csv reports/ship/plots/ 2>/dev/null || true
     cp data/processed/*.parquet reports/ship/data/ 2>/dev/null || true
     cp data/processed/*.csv reports/ship/data/ 2>/dev/null || true
-    cp -r _book/* reports/ship/book/
+    cp *.html reports/ship/html/ 2>/dev/null || true
     cp *.qmd _quarto.yml pixi.toml pixi.lock justfile spec.md reports/ship/
-    echo "Bundle created in reports/ship/ (rendered book in reports/ship/book/)"
+    echo "Bundle created in reports/ship/ (rendered HTML in reports/ship/html/)"
 
 clean:
     mkdir -p reports
-    mv _book reports/ 2>/dev/null || true
     mv output reports/ 2>/dev/null || true
-    rm -rf _freeze .quarto
+    rm -rf *_files *.html _freeze .quarto _book
 
 start-kernel:
   pixi run jupyter notebook --no-browser
