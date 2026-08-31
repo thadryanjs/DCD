@@ -173,6 +173,11 @@ elif len(shap_values.shape) == 3:
     shap_values_class1 = shap_values[:, :, 1]
 else:
     shap_values_class1 = shap_values
+
+# Transparency: Assert feature name count matches SHAP width
+assert shap_values_class1.shape[1] == len(all_feature_names), (
+    f"SHAP value width {shap_values_class1.shape[1]} != feature name count {len(all_feature_names)}"
+)
 ```
 
 # SHAP Summary Visualization
