@@ -208,10 +208,47 @@ if other_dir_path.exists() and current_dir_path.exists():
     df_other = pd.read_csv(other_dir_path).sort_values("importance", ascending=False).head(10)
 
     intersection = set(df_curr["feature"]).intersection(set(df_other["feature"]))
+    
     print(f"\n--- Feature Agreement (Top 10) ---")
-    print(f"Full vs First Look Intersection: {len(intersection)} / 10")
+    print(f"ML Full vs ML First-Look Intersection: {len(intersection)} / 10")
     print(f"Shared Features: {list(intersection)}")
+    
+    # Check agreement with R results if available
+    r_full_path = data_dir / "feature_analysis.csv"
+    r_fl_path = data_dir / "first_look_analysis.csv"
+    
+    if r_full_path.exists() and r_fl_path.exists():
+        df_r_full = pd.read_csv(r_full_path)
+        df_r_fl = pd.read_csv(r_fl_path)
+        
+        agreement_counts = {"ML_FL": len(intersection), "R_Full": 0, "R_FL": 0}
+        
+        for _, row in df_curr.iterrows():
+            feat = row["feature"]
+            ml_dir = 1 if row["direction"] == "positive" else -1
+            
+            # R Full check: significant and same sign
+            r_full_row = df_r_full[df_r_full["feature"] == feat]
+            if not r_full_row.empty:
+                est = r_full_row["estimate"].values[0]
+                p = r_full_row["p_value"].values[0]
+                if p < 0.05 and np.sign(est) == ml_dir:
+                    agreement_counts["R_Full"] += 1
+            
+            # R FL check: significant and same sign
+            r_fl_row = df_r_fl[df_r_fl["feature"] == feat]
+            if not r_fl_row.empty:
+                est = r_fl_row["estimate"].values[0]
+                p = r_fl_row["p_value"].values[0]
+                if p < 0.05 and np.sign(est) == ml_dir:
+                    agreement_counts["R_FL"] += 1
+        
+        print(f"Agreement with R Full (sig & same sign): {agreement_counts['R_Full']} / 10")
+        print(f"Agreement with R First-Look (sig & same sign): {agreement_counts['R_FL']} / 10")
+    else:
+        print("\nSkipping R agreement check: R analysis files missing.")
 else:
+
     print("\nSkipping Agreement Analysis: One of the direction files is missing.")
 ```
 
@@ -329,7 +366,7 @@ print(dir_df.head(10).to_string(index=False))
 # Robustness & Cross-Design Agreement
 The consistency of feature directionality across four distinct analysis designs—Full Dataset ML, First-Look ML, Full Dataset R, and First-Look R—serves as a critical robustness check.
 
-Agreement in 3-of-4 designs provides strong evidence against late-observation leakage. If results were driven by late-observation leakage (where the model learns from events that occur after the 'first look' but before the outcome), we would expect a significant divergence between the Full and First-Look designs.
+Agreement across designs provides strong evidence against late-observation leakage. If results were driven by late-observation leakage (where the model learns from events that occur after the 'first look' but before the outcome), we would expect a significant divergence between the Full and First-Look designs.
 
 Framing this agreement as a robustness result is stronger than simply asserting that leakage was controlled; it provides empirical evidence that the identified drivers are stable across both the timing of observation and the statistical method used.
 
