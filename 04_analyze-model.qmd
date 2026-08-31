@@ -123,14 +123,14 @@ if cv_metrics_path.exists():
     cv_df = pl.read_csv(cv_metrics_path).to_pandas()
 
     # Pivot to get metrics per model
-    summary_metrics = cv_df.groupby(["model", "metric"])["value"].agg(["mean", "std", "min", "max"]).reset_index()
+    summary_metrics = cv_df.groupby(["model", "metric"])["value"].agg(["median", "min", "max"]).reset_index()
 
-    print(f"\n--- Nested CV Summary ({prefix}) ---")
+    print(f"\nNested CV Summary ({prefix})")
     print(summary_metrics[summary_metrics["metric"] == "auc"].to_string(index=False))
 
     # AUC stability check
     auc_vals = cv_df[cv_df["metric"] == "auc"]["value"]
-    print(f"AUC Range: {auc_vals.min():.3f} to {auc_vals.max():.3f} (SD: {auc_vals.std():.3f})")
+    print(f"AUC Range: {auc_vals.min():.3f} to {auc_vals.max():.3f} (Median: {auc_vals.median():.3f})")
 else:
     print("WARNING: CV metrics file not found. Skipping summary.")
 ```
@@ -328,7 +328,7 @@ if other_dir_path.exists():
     df_other = pd.read_csv(other_dir_path).sort_values("importance", ascending=False).head(10)
 
     intersection = set(df_curr["feature"]).intersection(set(df_other["feature"]))
-    print(f"\n--- Feature Agreement (Top 10) ---")
+    print(f"\nFeature Agreement (Top 10)")
     print(f"Full vs First Look Intersection: {len(intersection)} / 10")
     print(f"Shared Features: {list(intersection)}")
 else:
