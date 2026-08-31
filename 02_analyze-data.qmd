@@ -125,7 +125,7 @@ first_results <- analyze(first_obs)
 
 # Feature Reconciliation Receipt
 # Compare R features against selected-features.csv from 01
-selected_feats_csv <- read_csv("output/selected-features.csv")
+selected_feats_csv <- read_csv("output/selected-features.csv", show_col_types = FALSE)
 selected_feats <- selected_feats_csv$feature
 
 r_feats <- setdiff(names(all_obs), label)
