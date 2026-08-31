@@ -100,6 +100,7 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
     x_train, x_test = x_df.iloc[train_idx], x_df.iloc[test_idx]
     y_train, y_test = y[train_idx], y[test_idx]
     groups_train, groups_test = groups[train_idx], groups[test_idx]
+    assert len(set(groups_train).intersection(set(groups_test))) == 0, "Patient leakage in train/test split"
 
     # Split Receipt
     train_patients = len(np.unique(groups_train))
@@ -206,6 +207,8 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
                 x_tr_out, x_te_out = x_train.iloc[outer_train_idx], x_train.iloc[outer_test_idx]
                 y_tr_out, y_te_out = y_train[outer_train_idx], y_train[outer_test_idx]
                 gr_tr_out = groups_train[outer_train_idx]
+                gr_te_out = groups_train[outer_test_idx]
+                assert len(set(gr_tr_out).intersection(set(gr_te_out))) == 0, f"Patient leakage in CV fold {fold_idx} (repeat {repeat})"
 
                 grid = GridSearchCV(
                     estimator=pipelines[name],
