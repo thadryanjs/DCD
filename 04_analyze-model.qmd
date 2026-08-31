@@ -259,8 +259,9 @@ else:
 ```
 
 # Feature Directionality Analysis
-We calculate the correlation between SHAP values and feature values to determine
-if a feature is a "Risk Factor" or "Protective Factor".
+We use a median split of feature values to determine if a feature is a "Risk Factor" or "Protective Factor"
+based on the average SHAP contribution for high vs low values. This approach is used instead of
+correlation to avoid assuming linearity.
 
 ```{python}
 directions = []
@@ -301,6 +302,9 @@ for i, col in enumerate(all_feature_names):
 
 ```{python}
 dir_df = pd.DataFrame(directions).sort_values("importance", ascending=False)
+neutral_count = len(dir_df[dir_df["direction"] == "Neutral/Non-linear"])
+print(f"Directionality Analysis: {neutral_count} features identified as Neutral/Non-linear")
+
 dir_df.to_csv(plots_dir / f"rf_feature_directions_{prefix}.csv", index=False)
 
 print("\nTop Feature Directions:")
