@@ -340,6 +340,3 @@ else:
 The consistency of feature directionality between the "Full" and "First-Look" ML designs serves as a critical robustness check.
 
 Agreement between these two designs provides evidence against late-observation leakage. If results were driven by late-observation leakage (where the model learns from events that occur after the 'first look' but before the outcome), we would expect a significant divergence between the Full and First-Look designs.
-
-Framing this agreement as a robustness result is stronger than simply asserting that leakage was controlled; it provides empirical evidence that the identified drivers are stable across the timing of observation.
-
