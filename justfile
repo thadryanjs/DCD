@@ -57,7 +57,10 @@ bundle:
     echo "Bundle created in shipment/ (rendered book in shipment/book/)"
 
 clean:
-    rm -rf _book _freeze .quarto shipment
+    mkdir -p reports
+    mv _book reports/ 2>/dev/null || true
+    mv output reports/ 2>/dev/null || true
+    rm -rf _freeze .quarto shipment
 
 start-kernel:
   pixi run jupyter notebook --no-browser
