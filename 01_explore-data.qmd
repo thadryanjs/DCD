@@ -321,7 +321,8 @@ missing_vals <- df %>%
 
 miss_dropped_table <- missing_vals %>%
   filter(pct > 10) %>%
-  select(feature, reason = pct)
+  mutate(reason = sprintf("%.1f%% missing", pct)) %>%
+  select(feature, reason)
 
 candidates <- setdiff(before_miss, miss_dropped_table$feature)
 print(sprintf("Missingness: %d in, %d out, %d dropped",
