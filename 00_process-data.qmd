@@ -161,10 +161,21 @@ after_tail_neg
 We assign a sequential `observation` number within each ID group.
 
 ```{r}
-# Verify row order is observation order (by checking if Alias is sorted)
-# We sort explicitly to be safe and transparent.
 df_pos_raw <- df_pos_raw %>% arrange(Alias, `Date/Time`)
 df_neg_raw <- df_neg_raw %>% arrange(Alias, `Date/Time`)
+
+# Verify that Date/Time is monotonically non-decreasing for each patient
+# This ensures that row order (and subsequent observation numbering) matches temporal order.
+verify_order <- function(df) {
+  df %>%
+    group_by(Alias) %>%
+    summarise(is_sorted = all(diff(`Date/Time`) >= 0), .groups = "drop") %>%
+    summarise(all_sorted = all(is_sorted)) %>%
+    pull(all_sorted)
+}
+
+stopifnot("Positive cases not sorted by date" = verify_order(df_pos_raw))
+stopifnot("Negative cases not sorted by date" = verify_order(df_neg_raw))
 ```
 
 ```{r}
