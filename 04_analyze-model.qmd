@@ -323,6 +323,7 @@ other_prefix = "first_look" if prefix == "full" else "full"
 other_dir_path = plots_dir / f"rf_feature_directions_{other_prefix}.csv"
 
 if other_dir_path.exists():
+    # Use in-memory dir_df for current design to avoid reading stale output from disk
     df_curr = dir_df.sort_values("importance", ascending=False).head(10)
     df_other = pd.read_csv(other_dir_path).sort_values("importance", ascending=False).head(10)
 
