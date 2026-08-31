@@ -136,10 +136,11 @@ Missingness Heatmap.
 ```{r}
 # Downsample for heatmap
 set.seed(8675309)
+n_sample <- min(nrow(df), 1000)
 heatmap_df <- df %>%
   select(all_of(numeric_cols)) %>%
   mutate(across(everything(), ~as.factor(as.integer(is.na(.x))))) %>%
-  slice_sample(n = min(nrow(.), 1000))
+  slice_sample(n = n_sample)
 
 # Note: ggplot2 heatmap usually requires long format
 heatmap_long <- heatmap_df %>%
@@ -158,8 +159,9 @@ ggplot(heatmap_long, aes(x = name, y = row_id, fill = value)) +
 Distribution of missing features per row.
 
 ```{r}
+# Exclude ID and label columns to ensure we only count feature missingness
 df %>%
-  select(all_of(numeric_cols)) %>%
+  select(-any_of(c("progression_to_death", "observation", "alias", "alias_filled"))) %>%
   mutate(across(everything(), ~as.integer(is.na(.x)))) %>%
   rowSums() %>%
   table() %>%
@@ -257,7 +259,7 @@ These tests rank features for plotting and are not an inferential claim. Separat
 
 ## 5. Feature filters
 
-### Exclusions
+# Exclusions
 
 **LOADBEARING** — These are post-outcome variables; including any of them makes the ML results meaningless.
 Consumed by: `03` model pipeline.
@@ -284,6 +286,13 @@ leak_justifications <- tibble(
 
 id_excludes <- c("alias", "alias_filled", "observation")
 all_excludes <- c(leak_justifications$feature, id_excludes)
+
+exc_dropped_table <- tibble(
+  feature = all_excludes,
+  reason = if_else(all_excludes %in% leak_justifications$feature,
+                   leak_justifications$reason[match(all_excludes, leak_justifications$feature)],
+                   "Manual/ID Exclusion")
+)
 ```
 
 ```{r}
@@ -291,17 +300,7 @@ leak_justifications
 ```
 
 ```{r}
-candidates <- names(df)
-before_exc <- candidates
-exc_dropped_table <- tibble(
-  feature = all_excludes,
-  reason = if_else(all_excludes %in% leak_justifications$feature,
-                   leak_justifications$reason[match(all_excludes, leak_justifications$feature)],
-                   "Manual/ID Exclusion")
-)
-candidates <- setdiff(before_exc, exc_dropped_table$feature)
-print(sprintf("Exclusions: %d in, %d out, %d dropped",
-              length(before_exc), length(candidates), nrow(exc_dropped_table)))
+print(sprintf("Exclusions: %d features dropped", nrow(exc_dropped_table)))
 ```
 
 ```{r}
@@ -313,18 +312,18 @@ exc_dropped_table
 Threshold: 10%.
 
 ```{r}
-before_miss <- candidates
+# Compute missingness on all columns to ensure a complete record
+all_cols <- names(df)
 missing_vals <- df %>%
-  summarise(across(all_of(candidates), ~sum(is.na(.x)) / n() * 100)) %>%
+  summarise(across(everything(), ~sum(is.na(.x)) / n() * 100)) %>%
   pivot_longer(everything(), names_to = "feature", values_to = "pct")
 
 miss_dropped_table <- missing_vals %>%
   filter(pct > 10) %>%
-  select(feature, reason = pct)
+  mutate(reason = sprintf("%.1f%% missing", pct)) %>%
+  select(feature, reason)
 
-candidates <- setdiff(before_miss, miss_dropped_table$feature)
-print(sprintf("Missingness: %d in, %d out, %d dropped",
-              length(before_miss), length(candidates), nrow(miss_dropped_table)))
+print(sprintf("Missingness: %d features dropped", nrow(miss_dropped_table)))
 ```
 
 ```{r}
@@ -336,11 +335,10 @@ miss_dropped_table
 Threshold: 0.01 (raw unscaled variance). This is unit-dependent and primarily catches degenerate columns.
 
 ```{r}
-before_var <- candidates
-numeric_candidates <- candidates[sapply(candidates, function(c) is.numeric(df[[c]]))]
-
+# Compute variance on all numeric columns
+numeric_all <- df %>% select(where(is.numeric)) %>% names()
 var_vals <- df %>%
-  summarise(across(all_of(numeric_candidates), var)) %>%
+  summarise(across(all_of(numeric_all), var)) %>%
   pivot_longer(everything(), names_to = "feature", values_to = "variance")
 
 var_dropped_table <- var_vals %>%
@@ -348,13 +346,26 @@ var_dropped_table <- var_vals %>%
   mutate(reason = sprintf("%.4f", variance)) %>%
   select(feature, reason)
 
-candidates <- setdiff(before_var, var_dropped_table$feature)
-print(sprintf("Variance: %d in, %d out, %d dropped",
-              length(before_var), length(candidates), nrow(var_dropped_table)))
+print(sprintf("Variance: %d features dropped", nrow(var_dropped_table)))
 ```
 
 ```{r}
 var_dropped_table
+```
+
+### Final Feature Set
+
+```{r}
+# Combine all dropped features
+all_dropped <- bind_rows(
+  exc_dropped_table,
+  miss_dropped_table,
+  var_dropped_table
+)
+
+candidates <- setdiff(names(df), all_dropped$feature)
+print(sprintf("Final feature set: %d features", length(candidates)))
+cat(paste(candidates, collapse = "\n"))
 ```
 
 ## 6. Correlation
