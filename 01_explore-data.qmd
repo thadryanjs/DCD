@@ -312,9 +312,10 @@ exc_dropped_table
 Threshold: 10%.
 
 ```{r}
-before_miss <- candidates
+# Compute missingness on all columns to ensure a complete record
+all_cols <- names(df)
 missing_vals <- df %>%
-  summarise(across(all_of(candidates), ~sum(is.na(.x)) / n() * 100)) %>%
+  summarise(across(everything(), ~sum(is.na(.x)) / n() * 100)) %>%
   pivot_longer(everything(), names_to = "feature", values_to = "pct")
 
 miss_dropped_table <- missing_vals %>%
@@ -322,9 +323,7 @@ miss_dropped_table <- missing_vals %>%
   mutate(reason = sprintf("%.1f%% missing", pct)) %>%
   select(feature, reason)
 
-candidates <- setdiff(before_miss, miss_dropped_table$feature)
-print(sprintf("Missingness: %d in, %d out, %d dropped",
-              length(before_miss), length(candidates), nrow(miss_dropped_table)))
+print(sprintf("Missingness: %d features dropped", nrow(miss_dropped_table)))
 ```
 
 ```{r}
@@ -336,11 +335,10 @@ miss_dropped_table
 Threshold: 0.01 (raw unscaled variance). This is unit-dependent and primarily catches degenerate columns.
 
 ```{r}
-before_var <- candidates
-numeric_candidates <- candidates[sapply(candidates, function(c) is.numeric(df[[c]]))]
-
+# Compute variance on all numeric columns
+numeric_all <- df %>% select(where(is.numeric)) %>% names()
 var_vals <- df %>%
-  summarise(across(all_of(numeric_candidates), var)) %>%
+  summarise(across(all_of(numeric_all), var)) %>%
   pivot_longer(everything(), names_to = "feature", values_to = "variance")
 
 var_dropped_table <- var_vals %>%
@@ -348,13 +346,26 @@ var_dropped_table <- var_vals %>%
   mutate(reason = sprintf("%.4f", variance)) %>%
   select(feature, reason)
 
-candidates <- setdiff(before_var, var_dropped_table$feature)
-print(sprintf("Variance: %d in, %d out, %d dropped",
-              length(before_var), length(candidates), nrow(var_dropped_table)))
+print(sprintf("Variance: %d features dropped", nrow(var_dropped_table)))
 ```
 
 ```{r}
 var_dropped_table
+```
+
+### Final Feature Set
+
+```{r}
+# Combine all dropped features
+all_dropped <- bind_rows(
+  exc_dropped_table,
+  miss_dropped_table,
+  var_dropped_table
+)
+
+candidates <- setdiff(names(df), all_dropped$feature)
+print(sprintf("Final feature set: %d features", length(candidates)))
+cat(paste(candidates, collapse = "\n"))
 ```
 
 ## 6. Correlation
