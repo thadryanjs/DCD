@@ -268,8 +268,8 @@ for i, col in enumerate(all_feature_names):
     feat_vals = x_train_transformed_df[col].values
     s_vals = shap_values_class1[:, i]
 
-    # Handle non-linear effects: compare SHAP values for high vs low feature values
-    # We use the median as the split point
+    # Handle non-linear effects by comparing SHAP values for high vs low feature values
+    # (Median Split). This is used instead of correlation to avoid assuming linearity.
     median_val = np.median(feat_vals)
     high_mask = feat_vals > median_val
     low_mask = feat_vals <= median_val
