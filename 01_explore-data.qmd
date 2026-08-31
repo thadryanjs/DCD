@@ -159,8 +159,9 @@ ggplot(heatmap_long, aes(x = name, y = row_id, fill = value)) +
 Distribution of missing features per row.
 
 ```{r}
+# Exclude ID and label columns to ensure we only count feature missingness
 df %>%
-  select(all_of(numeric_cols)) %>%
+  select(-any_of(c("progression_to_death", "observation", "alias", "alias_filled"))) %>%
   mutate(across(everything(), ~as.integer(is.na(.x)))) %>%
   rowSums() %>%
   table() %>%
@@ -258,7 +259,7 @@ These tests rank features for plotting and are not an inferential claim. Separat
 
 ## 5. Feature filters
 
-### Exclusions
+# Exclusions
 
 **LOADBEARING** — These are post-outcome variables; including any of them makes the ML results meaningless.
 Consumed by: `03` model pipeline.
@@ -285,6 +286,13 @@ leak_justifications <- tibble(
 
 id_excludes <- c("alias", "alias_filled", "observation")
 all_excludes <- c(leak_justifications$feature, id_excludes)
+
+exc_dropped_table <- tibble(
+  feature = all_excludes,
+  reason = if_else(all_excludes %in% leak_justifications$feature,
+                   leak_justifications$reason[match(all_excludes, leak_justifications$feature)],
+                   "Manual/ID Exclusion")
+)
 ```
 
 ```{r}
@@ -292,17 +300,7 @@ leak_justifications
 ```
 
 ```{r}
-candidates <- names(df)
-before_exc <- candidates
-exc_dropped_table <- tibble(
-  feature = all_excludes,
-  reason = if_else(all_excludes %in% leak_justifications$feature,
-                   leak_justifications$reason[match(all_excludes, leak_justifications$feature)],
-                   "Manual/ID Exclusion")
-)
-candidates <- setdiff(before_exc, exc_dropped_table$feature)
-print(sprintf("Exclusions: %d in, %d out, %d dropped",
-              length(before_exc), length(candidates), nrow(exc_dropped_table)))
+print(sprintf("Exclusions: %d features dropped", nrow(exc_dropped_table)))
 ```
 
 ```{r}
