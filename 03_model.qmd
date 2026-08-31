@@ -194,6 +194,7 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
     metrics_to_track = ["accuracy", "precision", "recall", "f1", "auc"]
 
     all_cv_results = []
+    fold_composition = []
 
     for name in pipelines.keys():
         print(f"\nEvaluating Model: {name} ({prefix})")
@@ -209,6 +210,15 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
                 gr_tr_out = groups_train[outer_train_idx]
                 gr_te_out = groups_train[outer_test_idx]
                 assert len(set(gr_tr_out).intersection(set(gr_te_out))) == 0, f"Patient leakage in CV fold {fold_idx} (repeat {repeat})"
+                
+                if name == "Logistic Regression":
+                    fold_composition.append({
+                        "repeat": repeat + 1,
+                        "fold": fold_idx + 1,
+                        "n_patients": len(np.unique(gr_te_out)),
+                        "pos": (y_te_out == 1).sum(),
+                        "neg": (y_te_out == 0).sum()
+                    })
 
                 grid = GridSearchCV(
                     estimator=pipelines[name],
@@ -274,6 +284,10 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
             iqr_s = np.percentile(clean_scores, 75) - np.percentile(clean_scores, 25)
             print(f"  {m:12s}: {median_s:.3f} [{min_s:.3f}, {max_s:.3f}] (IQR: {iqr_s:.3f}) [n={len(clean_scores)}]")
 
+    print("\n--- CV Fold Composition ---")
+    comp_df = pd.DataFrame(fold_composition)
+    print(comp_df.to_string(index=False))
+    
     cv_results_df = pl.DataFrame(all_cv_results)
     cv_results_path = plots_dir / f"cv_metrics_per_fold_{prefix}.csv"
     cv_results_df.write_csv(cv_results_path)
