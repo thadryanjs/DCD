@@ -175,8 +175,8 @@ else:
     shap_values_class1 = shap_values
 
 # Transparency: Assert feature name count matches SHAP width
-assert shap_values_class1.shape[1] == len(all_feature_names), (
-    f"SHAP value width {shap_values_class1.shape[1]} != feature name count {len(all_feature_names)}"
+assert len(all_feature_names) == shap_values_class1.shape[1], (
+    f"{len(all_feature_names)} names vs {shap_values_class1.shape[1]} SHAP columns"
 )
 ```
 
