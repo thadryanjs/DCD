@@ -267,8 +267,10 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
             # Print per-repeat summary
             print(f"  Repeat {repeat + 1}:")
             for m, scores in repeat_metrics.items():
-                mean_s = np.nanmean(scores)
-                print(f"    {m:12s}: {mean_s:.3f} [n={len(scores)}]")
+                median_s = np.nanmedian(scores)
+                min_s = np.nanmin(scores)
+                max_s = np.nanmax(scores)
+                print(f"    {m:12s}: {median_s:.3f} [{min_s:.3f}, {max_s:.3f}] [n={len(scores)}]")
 
         # Final summary across all repeats
         print(f"\nOverall Results for {name} ({prefix}):")
