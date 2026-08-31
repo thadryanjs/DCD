@@ -216,8 +216,10 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
                         "repeat": repeat + 1,
                         "fold": fold_idx + 1,
                         "n_patients": len(np.unique(gr_te_out)),
-                        "pos": (y_te_out == 1).sum(),
-                        "neg": (y_te_out == 0).sum()
+                        "pos_rows": (y_te_out == 1).sum(),
+                        "pos_pts": len(np.unique(gr_te_out[y_te_out == 1])),
+                        "neg_rows": (y_te_out == 0).sum(),
+                        "neg_pts": len(np.unique(gr_te_out[y_te_out == 0]))
                     })
 
                 grid = GridSearchCV(
