@@ -136,10 +136,11 @@ Missingness Heatmap.
 ```{r}
 # Downsample for heatmap
 set.seed(8675309)
+n_sample <- min(nrow(df), 1000)
 heatmap_df <- df %>%
   select(all_of(numeric_cols)) %>%
   mutate(across(everything(), ~as.factor(as.integer(is.na(.x))))) %>%
-  slice_sample(n = min(nrow(.), 1000))
+  slice_sample(n = n_sample)
 
 # Note: ggplot2 heatmap usually requires long format
 heatmap_long <- heatmap_df %>%
