@@ -114,7 +114,7 @@ print("✓ Random Forest model ready for explainability.")
 # CV Performance Summary
 We aggregate the per-fold metrics to understand the stability of the AUC.
 
-**LOADBEARING** — Aggregating over 10 folds ensures results are not driven by a
+Aggregating over folds ensures results are not driven by a
 "lucky" split. Consumed by: Final Report.
 
 ```{python}
