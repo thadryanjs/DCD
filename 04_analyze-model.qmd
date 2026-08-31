@@ -1,6 +1,5 @@
----
-title: 'Model Explainability & Statistical Alignment'
----
+
+# Post-training Analysis
 
 This script uses SHAP (SHapley Additive exPlanations) to understand the directionality
 of feature impacts for the Random Forest model and aligns these findings with the

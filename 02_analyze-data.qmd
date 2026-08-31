@@ -2,6 +2,7 @@
 title: 'Statistical Analysis'
 ---
 
+# Statistical Analysis
 
 ## Statistical Framework: Patient-Level GLM
 The outcome (progression to death) is a patient-level constant; it does not vary across observations for a single individual. Consequently, a mixed-effects model (GLMM) with a patient random intercept is not identifiable, as there is no within-patient outcome variance to explain.
@@ -129,7 +130,7 @@ analyze <- function(d) {
     # Apply Rubin's Rules via pool()
     s <- summary(pool(as.mira(fits)), conf.int = TRUE)
     s <- s[s$term != "(Intercept)", ]
-    
+
     # Handle categorical features (multiple levels) by taking the first non-intercept estimate
     # for the purpose of the univariate stability flag.
     est <- s$estimate[1]

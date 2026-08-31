@@ -2,6 +2,8 @@
 title: 'Predictive Modeling'
 ---
 
+# Machine Learning Modeling
+
 This script evaluates three classifier architectures (Logistic Regression, Random Forest, XGBoost)
 to predict patient outcomes while strictly preventing data leakage.
 
@@ -106,25 +108,27 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
     train_patients = len(np.unique(groups_train))
     test_patients = len(np.unique(groups_test))
 
-    # Class balance
-    train_pos_rows = np.sum(y_train == 1)
-    train_neg_rows = np.sum(y_train == 0)
-    train_pos_pts = len(np.unique(groups_train[y_train == 1]))
-    train_neg_pts = len(np.unique(groups_train[y_train == 0]))
+    def get_class_stats(y_vals, gr_vals):
+        pos_mask = (y_vals == 1)
+        neg_mask = (y_vals == 0)
+        return {
+            "pos_rows": np.sum(pos_mask),
+            "neg_rows": np.sum(neg_mask),
+            "pos_pts": len(np.unique(gr_vals[pos_mask])),
+            "neg_pts": len(np.unique(gr_vals[neg_mask])),
+        }
 
-    test_pos_rows = np.sum(y_test == 1)
-    test_neg_rows = np.sum(y_test == 0)
-    test_pos_pts = len(np.unique(groups_test[y_test == 1]))
-    test_neg_pts = len(np.unique(groups_test[y_test == 0]))
+    train_stats = get_class_stats(y_train, groups_train)
+    test_stats = get_class_stats(y_test, groups_test)
 
     print(
         f"Split ({prefix}):\n"
         f"  Train shape: {x_train.shape} ({train_patients} patients)\n"
-        f"    Class 1: {train_pos_rows} rows, {train_pos_pts} patients\n"
-        f"    Class 0: {train_neg_rows} rows, {train_neg_pts} patients\n"
+        f"    Class 1: {train_stats['pos_rows']} rows, {train_stats['pos_pts']} patients\n"
+        f"    Class 0: {train_stats['neg_rows']} rows, {train_stats['neg_pts']} patients\n"
         f"  Test shape: {x_test.shape} ({test_patients} patients)\n"
-        f"    Class 1: {test_pos_rows} rows, {test_pos_pts} patients\n"
-        f"    Class 0: {test_neg_rows} rows, {test_neg_pts} patients\n"
+        f"    Class 1: {test_stats['pos_rows']} rows, {test_stats['pos_pts']} patients\n"
+        f"    Class 0: {test_stats['neg_rows']} rows, {test_stats['neg_pts']} patients\n"
         f"  Total patients: {train_patients + test_patients}"
     )
 
@@ -210,16 +214,14 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
                 gr_tr_out = groups_train[outer_train_idx]
                 gr_te_out = groups_train[outer_test_idx]
                 assert len(set(gr_tr_out).intersection(set(gr_te_out))) == 0, f"Patient leakage in CV fold {fold_idx} (repeat {repeat})"
-                
+
                 if name == "Logistic Regression":
+                    stats = get_class_stats(y_te_out, gr_te_out)
                     fold_composition.append({
                         "repeat": repeat + 1,
                         "fold": fold_idx + 1,
                         "n_patients": len(np.unique(gr_te_out)),
-                        "pos_rows": (y_te_out == 1).sum(),
-                        "pos_pts": len(np.unique(gr_te_out[y_te_out == 1])),
-                        "neg_rows": (y_te_out == 0).sum(),
-                        "neg_pts": len(np.unique(gr_te_out[y_te_out == 0]))
+                        **stats
                     })
 
                 grid = GridSearchCV(
@@ -291,7 +293,7 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
     print("\n--- CV Fold Composition ---")
     comp_df = pd.DataFrame(fold_composition)
     print(comp_df.to_string(index=False))
-    
+
     cv_results_df = pl.DataFrame(all_cv_results)
     cv_results_path = plots_dir / f"cv_metrics_per_fold_{prefix}.csv"
     cv_results_df.write_csv(cv_results_path)

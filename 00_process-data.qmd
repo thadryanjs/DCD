@@ -25,19 +25,37 @@ df_neg_raw <- read_excel("data/negative-cases-ANR-Data.xlsx") %>%
 Looking at raw data. The ID column (`Alias`) in the negative set contains merged cells (read as NAs).
 
 ```{r}
-df_pos_raw %>% select(row_number, Alias) %>% head(27)
+df_pos_head_before <- df_pos_raw %>%
+    select(row_number, Alias) %>%
+    head(27)
+
+df_pos_head_before %>%
+    print(n=Inf)
+```
+
+With the above we see two cycles through the merged cell convention - the merged cell has the number in the first row and the rest are blank until the next number starts. We can forward this with a simple function and verify it visually.
+
+```{r}
+df_pos_tail_before <- df_pos_raw %>%
+    select(row_number, Alias) %>%
+    tail(27)
+
+df_pos_tail_before %>%
+    print(n=Inf)
 ```
 
 ```{r}
-df_pos_raw %>% select(row_number, Alias) %>% tail(27)
-```
+df_neg_raw %>%
+    select(row_number, Alias) %>%
+    head(27) %>%
+    print(n=Inf)
+
 
 ```{r}
-df_neg_raw %>% select(row_number, Alias) %>% head(27)
-```
-
-```{r}
-df_neg_raw %>% select(row_number, Alias) %>% tail(27)
+df_neg_raw %>%
+    select(row_number, Alias) %>%
+    tail(27) %>%
+    print(n=Inf)
 ```
 
 ```{r}
@@ -50,27 +68,25 @@ print(sprintf("Negative dimensions: %d x %d", nrow(df_neg_raw), ncol(df_neg_raw)
 We filter completely empty rows before any other processing.
 
 ```{r}
-# Positive empty rows
-pos_empty_rows <- df_pos_raw %>% filter(if_all(everything(), is.na))
+(pos_empty_rows <- df_pos_raw %>%
+ filter(if_all(everything(), is.na)))
 ```
 
-```{r}
-pos_empty_rows
-```
+There are empty rows used for delineation but it seems they're removed automatically on read-in.
+
 
 ```{r}
-# Negative empty rows
-neg_empty_rows <- df_neg_raw %>% filter(if_all(everything(), is.na))
+(neg_empty_rows <- df_neg_raw %>%
+ filter(if_all(everything(), is.na)))
 ```
 
-```{r}
-neg_empty_rows
-```
+We inspect the number of rows in the data partitions.
 
 ```{r}
 # Filter and print count
 rows_before_pos <- nrow(df_pos_raw)
-df_pos_raw <- df_pos_raw %>% filter(!if_all(everything(), is.na))
+df_pos_raw <- df_pos_raw %>%
+    filter(!if_all(everything(), is.na))
 rows_after_pos <- nrow(df_pos_raw)
 
 rows_before_neg <- nrow(df_neg_raw)
@@ -84,14 +100,16 @@ print(sprintf("Negative empty rows dropped: %d", rows_before_neg - rows_after_ne
 ## 3. Forward-fill the ID
 
 **LOADBEARING** — `observation` numbering derives from this, and every first-look analysis derives from `observation == 1`.
-Consumed by: `01` first-look panel, `02` first-look GLM, `03` first-look models.
 
-The `Alias` column in the negative dataset uses merged cells, which appear as NAs. We propagate the ID downward.
+The `Alias` column in the negative dataset uses merged cells, which appear as NAs. We propagate the ID forward/downward.
 
 ```{r}
 # Positive view before
-before_head_pos <- df_pos_raw %>% select(row_number, Alias) %>% head(27)
-before_tail_pos <- df_pos_raw %>% select(row_number, Alias) %>% tail(27)
+before_head_pos <- df_pos_raw %>%
+    select(row_number, Alias) %>% head(27)
+
+before_tail_pos <- df_pos_raw %>%
+    select(row_number, Alias) %>% tail(27)
 ```
 
 ```{r}

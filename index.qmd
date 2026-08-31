@@ -1,12 +1,13 @@
----
-title: "DCD Analysis Pipeline"
----
+# Index
 
-This project evaluates predictive modeling for patient outcomes.
+This project develops and validates a predictive model for patient outcomes in the DCD (Donation after Circulatory Death) pipeline. The analysis focuses on strictly preventing data leakage through group-aware validation.
 
-## Chapters
-- [Process Data](00_process-data.qmd)
-- [Explore Data](01_explore-data.qmd)
-- [Analyze Data](02_analyze-data.qmd)
-- [Predictive Modeling](03_model.qmd)
-- [Model Explainability](04_analyze-model.qmd)
+## Project Structure
+
+The analysis is organized into the following stages:
+
+1. **[Data Processing](00_process-data.qmd)**: Cleaning, normalization, and construction of the final analytic dataset.
+2. **[Exploratory Data Analysis](01_explore-data.qmd)**: Distribution analysis, missingness patterns, and initial cohort characterization.
+3. **[Statistical Analysis](02_analyze-data.qmd)**: Univariate and pooled logistic regression to identify primary clinical drivers.
+4. **[Predictive Modeling](03_model.qmd)**: Implementation of RF, XGBoost, and Logistic Regression with nested, group-aware cross-validation.
+5. **[Model Explainability](04_analyze-model.qmd)**: SHAP-based feature importance and alignment with clinical evidence.
