@@ -101,7 +101,7 @@ model_filename = f"{prefix}_random_forest_model.joblib"
 model_path = data_dir / model_filename
 if model_path.exists():
     rf_pipeline = joblib.load(model_path)
-    print(f"✓ Loaded Random Forest model from {model_path}")
+    print(f"✓ Loaded Random Forest model artifact: {model_path.name} (Path: {model_path})")
 else:
     print(f"ERROR: RF model artifact {model_filename} not found. Please run 03_model.py first.")
     raise FileNotFoundError(f"Could not find {model_path}")
