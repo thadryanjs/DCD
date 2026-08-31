@@ -14,10 +14,6 @@ library(nanoparquet)
 
 ## 1. Load and show raw
 
-
-
-
-
 ```{r}
 df_pos_raw <- read_excel("data/positive-cases-Jennys-data-Edited.xlsx") %>%
   mutate(row_number = row_number())
