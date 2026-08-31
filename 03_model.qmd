@@ -100,6 +100,7 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
     x_train, x_test = x_df.iloc[train_idx], x_df.iloc[test_idx]
     y_train, y_test = y[train_idx], y[test_idx]
     groups_train, groups_test = groups[train_idx], groups[test_idx]
+    assert len(set(groups_train).intersection(set(groups_test))) == 0, "Patient leakage in train/test split"
 
     # Split Receipt
     train_patients = len(np.unique(groups_train))
@@ -193,6 +194,7 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
     metrics_to_track = ["accuracy", "precision", "recall", "f1", "auc"]
 
     all_cv_results = []
+    fold_composition = []
 
     for name in pipelines.keys():
         print(f"\nEvaluating Model: {name} ({prefix})")
@@ -206,6 +208,19 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
                 x_tr_out, x_te_out = x_train.iloc[outer_train_idx], x_train.iloc[outer_test_idx]
                 y_tr_out, y_te_out = y_train[outer_train_idx], y_train[outer_test_idx]
                 gr_tr_out = groups_train[outer_train_idx]
+                gr_te_out = groups_train[outer_test_idx]
+                assert len(set(gr_tr_out).intersection(set(gr_te_out))) == 0, f"Patient leakage in CV fold {fold_idx} (repeat {repeat})"
+                
+                if name == "Logistic Regression":
+                    fold_composition.append({
+                        "repeat": repeat + 1,
+                        "fold": fold_idx + 1,
+                        "n_patients": len(np.unique(gr_te_out)),
+                        "pos_rows": (y_te_out == 1).sum(),
+                        "pos_pts": len(np.unique(gr_te_out[y_te_out == 1])),
+                        "neg_rows": (y_te_out == 0).sum(),
+                        "neg_pts": len(np.unique(gr_te_out[y_te_out == 0]))
+                    })
 
                 grid = GridSearchCV(
                     estimator=pipelines[name],
@@ -252,8 +267,10 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
             # Print per-repeat summary
             print(f"  Repeat {repeat + 1}:")
             for m, scores in repeat_metrics.items():
-                mean_s = np.nanmean(scores)
-                print(f"    {m:12s}: {mean_s:.3f} [n={len(scores)}]")
+                median_s = np.nanmedian(scores)
+                min_s = np.nanmin(scores)
+                max_s = np.nanmax(scores)
+                print(f"    {m:12s}: {median_s:.3f} [{min_s:.3f}, {max_s:.3f}] [n={len(scores)}]")
 
         # Final summary across all repeats
         print(f"\nOverall Results for {name} ({prefix}):")
@@ -271,6 +288,10 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
             iqr_s = np.percentile(clean_scores, 75) - np.percentile(clean_scores, 25)
             print(f"  {m:12s}: {median_s:.3f} [{min_s:.3f}, {max_s:.3f}] (IQR: {iqr_s:.3f}) [n={len(clean_scores)}]")
 
+    print("\n--- CV Fold Composition ---")
+    comp_df = pd.DataFrame(fold_composition)
+    print(comp_df.to_string(index=False))
+    
     cv_results_df = pl.DataFrame(all_cv_results)
     cv_results_path = plots_dir / f"cv_metrics_per_fold_{prefix}.csv"
     cv_results_df.write_csv(cv_results_path)
