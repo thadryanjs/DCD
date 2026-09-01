@@ -539,6 +539,27 @@ numeric_sep %>%
 )
 ```
 
+```{r}
+sig_numeric <- numeric_sep %>%
+  filter(p_value < 0.05) %>%
+  pull(feature)
+
+df_first %>%
+  select(progression_to_death, all_of(sig_numeric)) %>%
+  pivot_longer(-progression_to_death, names_to = "feature", values_to = "value") %>%
+  ggplot(aes(x = factor(progression_to_death), y = value, fill = factor(progression_to_death))) +
+  geom_boxplot(outlier.alpha = 0.3) +
+  facet_wrap(~feature, scales = "free") +
+  theme_minimal() +
+  labs(
+    title = "Significant Numeric Features (p < 0.05)",
+    x = "Outcome (0=Neg, 1=Pos)",
+    y = "Value",
+    fill = "Outcome"
+  ) +
+  theme(legend.position = "none")
+```
+
 ### Categorical separation (Fisher/Chi-sq).
 
 ```{r}
@@ -561,6 +582,26 @@ cat_sep <- df_first %>%
 
 cat_sep %>%
     print(n=Inf)
+```
+
+```{r}
+sig_categorical <- cat_sep %>%
+  filter(p_value < 0.05) %>%
+  pull(feature)
+
+df_first %>%
+  select(progression_to_death, all_of(sig_categorical)) %>%
+  pivot_longer(-progression_to_death, names_to = "feature", values_to = "value") %>%
+  ggplot(aes(x = value, fill = factor(progression_to_death))) +
+  geom_bar(position = "dodge") +
+  facet_wrap(~feature, scales = "free") +
+  theme_minimal() +
+  labs(
+    title = "Significant Categorical Features (p < 0.05)",
+    x = "Level",
+    y = "Count",
+    fill = "Outcome"
+  )
 ```
 
 ## 6. Correlation
