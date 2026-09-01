@@ -138,29 +138,33 @@ df_pos_tail_after
 ```{r}
 # Negative mutation
 na_before_neg <- sum(is.na(df_neg_raw$Alias))
+
+# Show slice spanning ID boundaries before fill
+# Find first non-NA Alias, then take a slice around it
+first_alias_idx <- which(!is.na(df_neg_raw$Alias))[1]
+slice_start <- max(1, first_alias_idx - 2)
+slice_end <- min(nrow(df_neg_raw), first_alias_idx + 10)
+
+df_neg_boundary_before <- df_neg_raw %>% 
+  select(row_number, Alias) %>% 
+  slice(slice_start:slice_end)
+
 df_neg_raw <- df_neg_raw %>% fill(Alias, .direction = "down")
 na_after_neg <- sum(is.na(df_neg_raw$Alias))
 
-df_neg_head_after <- df_neg_raw %>% select(row_number, Alias) %>% head(27)
-df_neg_tail_after <- df_neg_raw %>% select(row_number, Alias) %>% tail(27)
+df_neg_boundary_after <- df_neg_raw %>% 
+  select(row_number, Alias) %>% 
+  slice(slice_start:slice_end)
 
 print(sprintf("Negative Alias NAs filled: %d of %d", na_before_neg - na_after_neg, na_before_neg))
 ```
 
 ```{r}
-df_neg_head_before
+df_neg_boundary_before
 ```
 
 ```{r}
-df_neg_head_after
-```
-
-```{r}
-df_neg_tail_before
-```
-
-```{r}
-df_neg_tail_after
+df_neg_boundary_after
 ```
 
 ## 4. Observation numbering
@@ -201,19 +205,30 @@ df_neg_raw %>%
 Print distribution of observations per patient.
 
 ```{r}
-pos_obs_dist <- df_pos_raw %>% count(Alias, name = "n")
-neg_obs_dist <- df_neg_raw %>% count(Alias, name = "n")
+# Obs per patient
+pos_obs_per_pat <- df_pos_raw %>% count(Alias, name = "n")
+neg_obs_per_pat <- df_neg_raw %>% count(Alias, name = "n")
 
-print("Positive Observation Distribution:")
-print(summary(pos_obs_dist$n))
+print("Positive: Obs per patient distribution")
+print(table(pos_obs_per_pat$n))
 
-print("Negative Observation Distribution:")
-print(summary(neg_obs_dist$n))
+print("Negative: Obs per patient distribution")
+print(table(neg_obs_per_pat$n))
+```
+
+Value counts of the `observation` column (how many rows are the 1st, 2nd, etc. obs).
+
+```{r}
+print("Positive: Observation value counts")
+print(table(df_pos_raw$observation))
+
+print("Negative: Observation value counts")
+print(table(df_neg_raw$observation))
 ```
 
 ```{r}
-min_pos <- min(pos_obs_dist$n)
-min_neg <- min(neg_obs_dist$n)
+min_pos <- min(pos_obs_per_pat$n)
+min_neg <- min(neg_obs_per_pat$n)
 print(sprintf("Min observation count - Positive: %d, Negative: %d", min_pos, min_neg))
 if(min_pos < 1 || min_neg < 1) stop("Minimum observation must be 1")
 ```
@@ -245,13 +260,13 @@ new_neg <- clean_name(old_neg)
 map_neg <- data.frame(old = old_neg, new = new_neg, stringsAsFactors = FALSE)
 ```
 
-Positive column mapping:
+Full Column Mapping - Positive:
 
 ```{r}
 map_pos
 ```
 
-Negative column mapping:
+Full Column Mapping - Negative:
 
 ```{r}
 map_neg
@@ -417,24 +432,30 @@ Consumed by: `01` patient counts, `02` patient-level aggregation, `03` group spl
 pos_ids_before <- n_distinct(df_pos_raw$alias)
 neg_ids_before <- n_distinct(df_neg_raw$alias)
 
+# Sample IDs before
+sample_pos_before <- head(unique(df_pos_raw$alias), 5)
+sample_neg_before <- head(unique(df_neg_raw$alias), 5)
+
 df_pos_raw <- df_pos_raw %>% mutate(alias = paste0("pos_", alias))
 df_neg_raw <- df_neg_raw %>% mutate(alias = paste0("neg_", alias))
 
 pos_ids_after <- n_distinct(df_pos_raw$alias)
 neg_ids_after <- n_distinct(df_neg_raw$alias)
+
+# Sample IDs after
+sample_pos_after <- head(unique(df_pos_raw$alias), 5)
+sample_neg_after <- head(unique(df_neg_raw$alias), 5)
 ```
 
 ```{r}
 print(sprintf("Unique IDs - Pos: %d -> %d", pos_ids_before, pos_ids_after))
 print(sprintf("Unique IDs - Neg: %d -> %d", neg_ids_before, neg_ids_after))
-```
 
-```{r}
-df_pos_raw %>% select(alias) %>% head(27)
-```
+print("Sample Pos IDs before/after:")
+print(data.frame(before = sample_pos_before, after = sample_pos_after))
 
-```{r}
-df_neg_raw %>% select(alias) %>% head(27)
+print("Sample Neg IDs before/after:")
+print(data.frame(before = sample_neg_before, after = sample_neg_after))
 ```
 
 ## 10. Combine
@@ -445,6 +466,16 @@ Consumed by: `01` missingness filter and leak exclusion list.
 ```{r}
 df_all <- bind_rows(df_pos_raw, df_neg_raw) %>%
   mutate(alias_filled = alias)
+```
+
+```{r}
+# Final ID check across combined dataset
+total_ids <- n_distinct(df_all$alias)
+expected_ids <- n_distinct(df_pos_raw$alias) + n_distinct(df_neg_raw$alias)
+
+assert_ids_match <- total_ids == expected_ids
+print(sprintf("Combined Unique IDs: %d (Expected: %d)", total_ids, expected_ids))
+stopifnot("Combined ID count mismatch" = assert_ids_match)
 ```
 
 Asymmetric columns:
@@ -463,11 +494,15 @@ print(sprintf("Columns in Negatives only: %d", length(neg_only)))
 ```
 
 ```{r}
-pos_only
-```
-
-```{r}
-neg_only
+if(length(pos_only) > 0 || length(neg_only) > 0) {
+  print("CANDIDATE LEAKS: The following columns are asymmetric and will be handled by the missingness filter in 01_explore-data.qmd")
+  print(data.frame(
+    pos_only = if(length(pos_only) > 0) pos_only else NA,
+    neg_only = if(length(neg_only) > 0) neg_only else NA
+  ))
+} else {
+  print("✓ No asymmetric columns found.")
+}
 ```
 
 ```{r}
@@ -500,22 +535,37 @@ print(sprintf("Dimensions: %d x %d", nrow(df_all), ncol(df_all)))
 Final Summary:
 
 ```{r}
-df_all %>%
+summary_table <- df_all %>%
+  group_by(progression_to_death) %>%
+  summarise(
+    rows = n(),
+    patients = n_distinct(alias),
+    avg_obs = mean(df_all %>% group_by(progression_to_death, alias) %>% summarise(n=n(), .groups="drop") %>% group_by(progression_to_death) %>% summarise(m=mean(n))$m),
+    max_obs = max(df_all %>% group_by(progression_to_death, alias) %>% summarise(n=n(), .groups="drop") %>% group_by(progression_to_death) %>% summarise(m=max(n))$m),
+    min_obs = min(df_all %>% group_by(progression_to_death, alias) %>% summarise(n=n(), .groups="drop") %>% group_by(progression_to_death) %>% summarise(m=min(n))$m)
+  )
+
+# This is a bit messy in a summary call, let's just compute the obs per patient once
+obs_per_pat <- df_all %>%
+  group_by(progression_to_death, alias) %>%
+  summarise(obs = n(), .groups = "drop")
+
+final_summary <- df_all %>%
   group_by(progression_to_death) %>%
   summarise(
     rows = n(),
     patients = n_distinct(alias)
+  ) %>%
+  left_join(
+    obs_per_pat %>% 
+      group_by(progression_to_death) %>% 
+      summarise(
+        avg_obs = mean(obs),
+        max_obs = max(obs),
+        min_obs = min(obs)
+      ),
+    by = "progression_to_death"
   )
-```
 
-```{r}
-df_all %>%
-  group_by(progression_to_death, alias) %>%
-  summarise(obs = n(), .groups = "drop") %>%
-  group_by(progression_to_death) %>%
-  summarise(
-    avg_obs = mean(obs),
-    max_obs = max(obs),
-    min_obs = min(obs)
-  )
+final_summary
 ```
