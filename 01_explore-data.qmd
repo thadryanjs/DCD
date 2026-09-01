@@ -190,10 +190,6 @@ df <- df %>%
 
 ```{r}
 df %>%
-```
-
-```{r}
-df %>%
     select(all_of(to_factor)) %>%
     tail()
 ```
@@ -231,11 +227,22 @@ df %>%
 
 ```{r}
 df <- df %>%
-    mutate_at(categorical_cols, as.factor) %>%
+    mutate_at(categorical_cols, as.factor)
+
+df %>%
     select(all_of(categorical_cols)) %>%
     glimpse() %>%
     print(n=Inf)
 ```
+
+The final set can now be constructed:
+
+```{r}
+df <- df %>%
+    select(all_of(c(numeric_cols, date_cols, categorical_cols)))
+```
+
+
 ## 1. Class and patient distributions
 
 Rows per class:
@@ -323,12 +330,12 @@ Consumed by: the missingness filter, and the leak discussion in `00`'s concat pr
 missing_by_class <- df %>%
   group_by(progression_to_death) %>%
   summarise(
-    n = n(),
+    n_obs = n(),
     across(all_of(numeric_cols), ~sum(is.na(.x))),
     .groups = "drop"
   ) %>%
-  pivot_longer(-c(progression_to_death, n), names_to = "feature", values_to = "null_count") %>%
-  mutate(null_pct = null_count / n * 100) %>%
+  pivot_longer(-c(progression_to_death, n_obs), names_to = "feature", values_to = "null_count") %>%
+  mutate(null_pct = null_count / n_obs * 100) %>%
   filter(null_count > 0) %>%
   select(feature, progression_to_death, null_count, null_pct) %>%
   pivot_wider(names_from = progression_to_death,
