@@ -28,103 +28,103 @@ numeric_cols <- df %>%
   names()
 
 numeric_cols %>%
-    length()
+  length()
 ```
 
 This flags 23 columns as numeric. We will spot check them to make sure nothing odd happened.
 
 ```{r}
 df %>%
-    select(all_of(numeric_cols)) %>%
-    select(1:4)
+  select(all_of(numeric_cols)) %>%
+  select(1:4)
 ```
 
 ```{r}
 df %>%
-    select(all_of(numeric_cols)) %>%
-    select(5:8)
+  select(all_of(numeric_cols)) %>%
+  select(5:8)
 ```
 
 ```{r}
 df %>%
-    select(all_of(numeric_cols)) %>%
-    select(9:12)
+  select(all_of(numeric_cols)) %>%
+  select(9:12)
 ```
 
 ```{r}
 df %>%
-    select(all_of(numeric_cols)) %>%
-    select(13:16)
+  select(all_of(numeric_cols)) %>%
+  select(13:16)
 ```
 
 ```{r}
 df %>%
-    select(all_of(numeric_cols)) %>%
-    select(17:20)
+  select(all_of(numeric_cols)) %>%
+  select(17:20)
 ```
 
 ```{r}
 df %>%
-    select(all_of(numeric_cols)) %>%
-    select(21:23)
+  select(all_of(numeric_cols)) %>%
+  select(21:23)
 ```
 
 ```{r}
 non_numeric_cols <- df %>%
-    select(-all_of(numeric_cols)) %>%
-    names()
+  select(-all_of(numeric_cols)) %>%
+  names()
 
 length(non_numeric_cols)
 ```
 
 ```{r}
 df %>%
-    select(all_of(non_numeric_cols)) %>%
-    select(1:4)
+  select(all_of(non_numeric_cols)) %>%
+  select(1:4)
 ```
 
 ```{r}
 df %>%
-    select(all_of(non_numeric_cols)) %>%
-    select(5:8)
+  select(all_of(non_numeric_cols)) %>%
+  select(5:8)
 ```
 
 ```{r}
 df %>%
-    select(all_of(non_numeric_cols)) %>%
-    select(9:12)
+  select(all_of(non_numeric_cols)) %>%
+  select(9:12)
 ```
 
 ```{r}
 df %>%
-    select(all_of(non_numeric_cols)) %>%
-    select(13:16)
+  select(all_of(non_numeric_cols)) %>%
+  select(13:16)
 ```
 
 ```{r}
 df %>%
-    select(all_of(non_numeric_cols)) %>%
-    select(17:20)
+  select(all_of(non_numeric_cols)) %>%
+  select(17:20)
 ```
 
 ```{r}
 df %>%
-    select(all_of(non_numeric_cols)) %>%
-    select(21:24)
+  select(all_of(non_numeric_cols)) %>%
+  select(21:24)
 ```
 
 ```{r}
 df %>%
-    select(all_of(non_numeric_cols)) %>%
-    select(25:28)
+  select(all_of(non_numeric_cols)) %>%
+  select(25:28)
 ```
 
 Removing the dates, most of these look like they a read in correctly
 
 ```{r}
 date_cols <- df %>%
-    select(where(is.POSIXct)) %>%
-    names()
+  select(where(is.POSIXct)) %>%
+  names()
 
 date_cols
 ```
@@ -133,39 +133,39 @@ We can then get our official categories.
 
 ```{r}
 categorical_cols <- df %>%
-    select(-all_of(numeric_cols), -all_of(date_cols)) %>%
-    names()
+  select(-all_of(numeric_cols), -all_of(date_cols)) %>%
+  names()
 
 categorical_cols %>%
-    length()
+  length()
 ```
 
 ```{r}
 df %>%
-    select(all_of(categorical_cols)) %>%
-    select(1:4) %>%
-    print(width=Inf)
+  select(all_of(categorical_cols)) %>%
+  select(1:4) %>%
+  print(width = Inf)
 ```
 
 ```{r}
 df %>%
-    select(all_of(categorical_cols)) %>%
-    select(5:8) %>%
-    print(width=Inf)
+  select(all_of(categorical_cols)) %>%
+  select(5:8) %>%
+  print(width = Inf)
 ```
 
 ```{r}
 df %>%
-    select(all_of(categorical_cols)) %>%
-    select(9:12) %>%
-    print(width=Inf)
+  select(all_of(categorical_cols)) %>%
+  select(9:12) %>%
+  print(width = Inf)
 ```
 
 ```{r}
 df %>%
-    select(all_of(categorical_cols)) %>%
-    select(13:16) %>%
-    print(width=Inf)
+  select(all_of(categorical_cols)) %>%
+  select(13:16) %>%
+  print(width = Inf)
 ```
 
 We determine if this covers all our columns.
@@ -179,19 +179,19 @@ Not quite.
 
 ```{r}
 df %>%
-    select(-all_of(c(categorical_cols, numeric_cols, date_cols)))
+  select(-all_of(c(categorical_cols, numeric_cols, date_cols)))
 
 to_factor <- c("alias", "alias_filled", "observation", "progression_to_death")
 ```
 ```{r}
 df <- df %>%
-    mutate_at(to_factor, as.factor)
+  mutate_at(to_factor, as.factor)
 ```
 
 ```{r}
 df %>%
-    select(all_of(to_factor)) %>%
-    tail()
+  select(all_of(to_factor)) %>%
+  tail()
 ```
 
 
@@ -205,9 +205,9 @@ Now we need to inspect this "dcd_map_baseline" column.
 
 ```{r}
 df %>%
-    pull(dcd_map_baseline) %>%
-    is.na()%>%
-    table()
+  pull(dcd_map_baseline) %>%
+  is.na() %>%
+  table()
 ```
 
 It looks like there is nothing here.
@@ -220,26 +220,26 @@ We still need to make sure the types of our categorical variables are typed corr
 
 ```{r}
 df %>%
-    select(all_of(categorical_cols)) %>%
-    glimpse() %>%
-    print(n=Inf)
+  select(all_of(categorical_cols)) %>%
+  glimpse() %>%
+  print(n = Inf)
 ```
 
 ```{r}
 df <- df %>%
-    mutate_at(categorical_cols, as.factor)
+  mutate_at(categorical_cols, as.factor)
 
 df %>%
-    select(all_of(categorical_cols)) %>%
-    glimpse() %>%
-    print(n=Inf)
+  select(all_of(categorical_cols)) %>%
+  glimpse() %>%
+  print(n = Inf)
 ```
 
 The final set can now be constructed:
 
 ```{r}
 df <- df %>%
-    select(all_of(c(numeric_cols, date_cols, categorical_cols)))
+  select(all_of(c(numeric_cols, date_cols, categorical_cols)))
 ```
 
 
@@ -277,10 +277,12 @@ df %>%
   ggplot(aes(x = obs, fill = factor(progression_to_death))) +
   geom_histogram(binwidth = 1, alpha = 0.4, position = "identity", color = "white") +
   theme_minimal() +
-  labs(title = "Observations per Patient Distribution",
-       x = "Number of Observations",
-       y = "Patient Count",
-       fill = "Outcome (0=Neg, 1=Pos)")
+  labs(
+    title = "Observations per Patient Distribution",
+    x = "Number of Observations",
+    y = "Patient Count",
+    fill = "Outcome (0=Neg, 1=Pos)"
+  )
 ```
 
 ## Missingness
@@ -289,7 +291,7 @@ We analyze missing count and percent per column.
 
 ```{r}
 missing_stats <- df %>%
-  summarise(across(everything(), ~sum(is.na(.x)))) %>%
+  summarise(across(everything(), ~ sum(is.na(.x)))) %>%
   pivot_longer(everything(), names_to = "feature", values_to = "null_count") %>%
   mutate(null_pct = null_count / nrow(df) * 100) %>%
   arrange(desc(null_pct))
@@ -301,24 +303,24 @@ A few of these look really high so we will spot-check a few of the these.
 
 ```{r}
 df$dcd_map_baseline %>%
-    head()
+  head()
 
 df$dcd_map_baseline %>%
-    tail()
+  tail()
 
 df$dcd_map_baseline %>%
-    table()
+  table()
 ```
 
 ```{r}
 df$apnea %>%
-    head()
+  head()
 
 df$apnea %>%
-    tail()
+  tail()
 
 df$apnea %>%
-    table()
+  table()
 ```
 
 This seems to be in order.
@@ -331,15 +333,19 @@ missing_by_class <- df %>%
   group_by(progression_to_death) %>%
   summarise(
     n_obs = n(),
-    across(all_of(numeric_cols), ~sum(is.na(.x))),
-    .groups = "drop"
+    across(all_of(numeric_cols), ~ sum(is.na(.x))),
   ) %>%
-  pivot_longer(-c(progression_to_death, n_obs), names_to = "feature", values_to = "null_count") %>%
+  pivot_longer(-c(progression_to_death, n_obs),
+    names_to = "feature",
+    values_to = "null_count"
+  ) %>%
   mutate(null_pct = null_count / n_obs * 100) %>%
   filter(null_count > 0) %>%
   select(feature, progression_to_death, null_count, null_pct) %>%
-  pivot_wider(names_from = progression_to_death,
-              values_from = c(null_count, null_pct), names_sep = "_")
+  pivot_wider(
+    names_from = progression_to_death,
+    values_from = c(null_count, null_pct), names_sep = "_"
+  )
 
 missing_by_class
 ```
@@ -370,11 +376,13 @@ A real leakage risk is anything where the proportion of missing values is much h
 ```{r}
 df_na_frac <- df %>%
   group_by(progression_to_death) %>%
-  summarise(across(all_of(numeric_cols), ~mean(is.na(.x)))) %>%
+  summarise(across(all_of(numeric_cols), ~ mean(is.na(.x)))) %>%
   # pivot out the do the calculations and then back because it reads cleaner
   pivot_longer(-progression_to_death, names_to = "feature", values_to = "frac_na") %>%
-  pivot_wider(names_from = progression_to_death, values_from = frac_na,
-              names_prefix = "na_") %>%
+  pivot_wider(
+    names_from = progression_to_death, values_from = frac_na,
+    names_prefix = "na_"
+  ) %>%
   arrange(desc(pmax(na_0, na_1)))
 ```
 
@@ -410,7 +418,7 @@ numeric_sep
 
 ```{r}
 (
-numeric_sep_features <- numeric_sep %>%
+  numeric_sep_features <- numeric_sep %>%
     pull(feature)
 )
 ```
@@ -418,51 +426,26 @@ numeric_sep_features <- numeric_sep %>%
 ### Categorical separation (Fisher/Chi-sq).
 
 ```{r}
-categorical_cols <- df %>%
-  select(where(is.character)) %>%
-  select(-any_of(c("alias", "alias_filled"))) %>%
-  names()
+cat_sep <- df_first %>%
+  select(progression_to_death, all_of(setdiff(
+    categorical_cols,
+    c("alias", "alias_filled", "observation", "progression_to_death")
+  ))) %>%
+  mutate(across(everything(), as.character)) %>%
+  pivot_longer(-progression_to_death, names_to = "feature") %>%
+  group_by(feature) %>%
+  summarise(
+    n_levels = n_distinct(value, na.rm = TRUE),
+    p_value = tryCatch(
+      fisher.test(table(value, progression_to_death))$p.value,
+      error = function(e) NA_real_
+    )
+  ) %>%
+  arrange(p_value)
 
-cat_sep <- lapply(categorical_cols, function(col) {
-  tab <- table(df_first[[col]], df_first$progression_to_death)
-  if(nrow(tab) < 2 || ncol(tab) < 2) return(NULL)
-
-  test_res <- tryCatch({
-    if(any(tab < 5)) fisher.test(tab) else chisq.test(tab)
-  }, error = function(e) NULL)
-
-  if(is.null(test_res)) return(NULL)
-
-  data.frame(
-    feature = col,
-    p_value = test_res$p.value,
-    stringsAsFactors = FALSE
-  )
-}) %>% bind_rows() %>% arrange(p_value)
-```
-
-```{r}
 cat_sep
 ```
 
-Top 9 features by separation (visual).
-
-```{r}
-# Pick top 9 numeric features by p-value
-top_9 <- head(numeric_sep$feature, 9)
-
-df_first %>%
-  select(progression_to_death, all_of(top_9)) %>%
-  pivot_longer(-progression_to_death) %>%
-  ggplot(aes(x = factor(progression_to_death), y = value)) +
-  geom_boxplot(outlier.shape = NA) +
-  geom_jitter(width = 0.2, alpha = 0.5) +
-  facet_wrap(~name, scales = "free") +
-  labs(x = "Class (0=Neg, 1=Pos)", y = "Value") +
-  theme_minimal()
-```
-
-These tests rank features for plotting and are not an inferential claim. Separation here is often weaker than final model AUC because the model combines multiple features.
 
 ## 5. Feature filters
 
@@ -497,8 +480,9 @@ all_excludes <- c(leak_justifications$feature, id_excludes)
 exc_dropped_table <- tibble(
   feature = all_excludes,
   reason = if_else(all_excludes %in% leak_justifications$feature,
-                   leak_justifications$reason[match(all_excludes, leak_justifications$feature)],
-                   "Manual/ID Exclusion")
+    leak_justifications$reason[match(all_excludes, leak_justifications$feature)],
+    "Manual/ID Exclusion"
+  )
 )
 ```
 
@@ -522,7 +506,7 @@ Threshold: 10%.
 # Compute missingness on all columns to ensure a complete record
 all_cols <- names(df)
 missing_vals <- df %>%
-  summarise(across(everything(), ~sum(is.na(.x)) / n() * 100)) %>%
+  summarise(across(everything(), ~ sum(is.na(.x)) / n() * 100)) %>%
   pivot_longer(everything(), names_to = "feature", values_to = "pct")
 
 miss_dropped_table <- missing_vals %>%
@@ -543,9 +527,11 @@ Threshold: 0.01 (raw unscaled variance). This is unit-dependent and primarily ca
 
 ```{r}
 # Compute variance on all numeric columns
-numeric_all <- df %>% select(where(is.numeric)) %>% names()
+numeric_all <- df %>%
+  select(where(is.numeric)) %>%
+  names()
 var_vals <- df %>%
-  summarise(across(all_of(numeric_all), ~var(.x, na.rm = TRUE))) %>%
+  summarise(across(all_of(numeric_all), ~ var(.x, na.rm = TRUE))) %>%
   pivot_longer(everything(), names_to = "feature", values_to = "variance")
 
 var_dropped_table <- var_vals %>%
@@ -591,7 +577,7 @@ cor_pairs <- as.data.frame(as.table(cor_matrix)) %>%
 ```
 
 ```{r}
-if(nrow(cor_pairs) > 0) {
+if (nrow(cor_pairs) > 0) {
   cor_pairs
 } else {
   print("No highly correlated pairs (|r| > 0.9) found.")

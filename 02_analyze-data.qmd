@@ -50,8 +50,8 @@ to_patient <- function(d, name = "unnamed") {
     select(-any_of("observation")) %>%
     group_by(.data[[id]], .data[[label]]) %>%
     summarise(
-      across(where(is.numeric), ~mean(.x, na.rm = TRUE)),
-      across(where(is.character), ~first(.x)),
+      across(where(is.numeric), ~ mean(.x, na.rm = TRUE)),
+      across(where(is.character), ~ first(.x)),
       .groups = "drop"
     ) %>%
     select(-all_of(id))
@@ -62,11 +62,13 @@ to_patient <- function(d, name = "unnamed") {
   dropped <- setdiff(cols_before, cols_after)
 
   if (length(dropped) > 0) {
-    print(sprintf("[%s] Dropped %d constant features: %s",
-                  name, length(dropped), paste(dropped, collapse = ", ")))
+    print(sprintf(
+      "[%s] Dropped %d constant features: %s",
+      name, length(dropped), paste(dropped, collapse = ", ")
+    ))
   }
 
-  d %>% mutate(across(where(is.numeric) & -all_of(label), ~as.numeric(scale(.x))))
+  d %>% mutate(across(where(is.numeric) & -all_of(label), ~ as.numeric(scale(.x))))
 }
 ```
 
@@ -97,8 +99,8 @@ r_feats <- setdiff(names(all_obs), label)
 sym_diff <- union(setdiff(r_feats, selected_feats), setdiff(selected_feats, r_feats))
 
 if (length(sym_diff) > 0) {
-    print("Note: Some selected features were dropped because they became constant at patient-level:")
-    print(setdiff(selected_feats, r_feats))
+  print("Note: Some selected features were dropped because they became constant at patient-level:")
+  print(setdiff(selected_feats, r_feats))
 }
 ```
 
@@ -123,7 +125,9 @@ analyze <- function(d) {
     separated <- FALSE
     for (i in 1:m) {
       fits[[i]] <- glm(as.formula(sprintf("%s ~ `%s`", label, f)),
-                       complete(imp, i), family = binomial)
+        complete(imp, i),
+        family = binomial
+      )
       p <- fitted(fits[[i]])
       separated <- separated || any(p < 1e-8 | p > 1 - 1e-8)
     }
@@ -143,9 +147,12 @@ analyze <- function(d) {
       feature = f, estimate = est, std_error = se, p_value = pval,
       ci_low = lo, ci_high = hi,
       unstable = separated || abs(est) > 10 || se > 5,
-      separated_flag = separated))
+      separated_flag = separated
+    ))
   }
-  out %>% mutate(p_adj = p.adjust(p_value, "fdr")) %>% arrange(p_value)
+  out %>%
+    mutate(p_adj = p.adjust(p_value, "fdr")) %>%
+    arrange(p_value)
 }
 ```
 
@@ -165,9 +172,11 @@ if (nrow(unstable_results) > 0) {
 ```
 
 ```{r}
-print(sprintf("Significant (FDR, stable fits): %d of %d. Unstable: %d.",
-              sum(results$p_adj < 0.05 & !results$unstable),
-              nrow(results), sum(results$unstable)))
+print(sprintf(
+  "Significant (FDR, stable fits): %d of %d. Unstable: %d.",
+  sum(results$p_adj < 0.05 & !results$unstable),
+  nrow(results), sum(results$unstable)
+))
 ```
 
 ```{r}
@@ -196,10 +205,14 @@ ggplot(plot_df, aes(or, feature)) +
   geom_point(aes(color = sig), size = 2) +
   scale_x_log10() +
   scale_color_manual(values = c("grey70", "firebrick"), labels = c("ns", "FDR p < 0.05"), name = NULL) +
-  labs(title = "DCD Progression: Unadjusted Marginal Odds Ratios (95% CI)",
-       subtitle = sprintf("%d features; %d unstable fits excluded",
-                          nrow(plot_df), sum(results$unstable)),
-       x = "Unadjusted Marginal Odds Ratio per SD (log scale)", y = NULL) +
+  labs(
+    title = "DCD Progression: Unadjusted Marginal Odds Ratios (95% CI)",
+    subtitle = sprintf(
+      "%d features; %d unstable fits excluded",
+      nrow(plot_df), sum(results$unstable)
+    ),
+    x = "Unadjusted Marginal Odds Ratio per SD (log scale)", y = NULL
+  ) +
   theme_minimal()
 
 ggsave("output/glmm_forest_plot_r.png", width = 10, height = 12, dpi = 300)
