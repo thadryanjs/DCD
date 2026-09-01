@@ -14,6 +14,11 @@ library(nanoparquet)
 
 ```{r}
 df <- nanoparquet::read_parquet("data/processed/combined-dataset.parquet")
+
+numeric_cols <- df %>%
+  select(where(is.numeric)) %>%
+  select(-any_of(c("progression_to_death", "observation"))) %>%
+  names()
 ```
 
 ## 1. Class and patient distributions
@@ -56,52 +61,7 @@ df %>%
        fill = "Outcome (0=Neg, 1=Pos)")
 ```
 
-# 2. Within-patient stability
-
-We quantify how much features fluctuate within a patient relative to the population.
-A low ratio suggests that repeated measurements are redundant, justifying a "First Look Only" model.
-
-```{r}
-# 1. Global SDs
-global_sds <- df %>%
-  select(where(is.numeric), -any_of(c("progression_to_death", "observation", "alias", "alias_filled"))) %>%
-  summarise(across(everything(), ~sd(.x, na.rm = TRUE))) %>%
-  pivot_longer(everything(), names_to = "feature", values_to = "global_sd")
-
-# 2. Mean of within-patient SDs
-within_sds <- df %>%
-  select(where(is.numeric), alias_filled, -any_of(c("progression_to_death", "observation"))) %>%
-  pivot_longer(-alias_filled, names_to = "feature", values_to = "val") %>%
-  group_by(feature, alias_filled) %>%
-  summarise(s = sd(val, na.rm = TRUE), .groups = "drop") %>%
-  group_by(feature) %>%
-  summarise(within_sd = mean(s, na.rm = TRUE), .groups = "drop")
-
-# 3. Combine and calculate ratio
-stability_results <- global_sds %>%
-  inner_join(within_sds, by = "feature") %>%
-  mutate(ratio = within_sd / global_sd) %>%
-  filter(!is.na(ratio), is.finite(ratio)) %>%
-  arrange(ratio)
-
-# Store for later use in heatmap
-numeric_cols <- stability_results$feature
-```
-
-```{r}
-stability_results <- stability_results %>%
-  mutate(status = if_else(ratio < 0.3, "Stable", "Volatile"))
-
-stability_results %>%
-  print(n=Inf)
-```
-
-```{r}
-print(sprintf("Average Stability Ratio: %.3f",
-              mean(stability_results$ratio, na.rm = TRUE)))
-```
-
-## 3. Missingness
+## Missingness
 
 We analyze missing count and percent per column.
 
@@ -115,102 +75,125 @@ missing_stats <- df %>%
 missing_stats
 ```
 
+A few of these look really high so we will spot-check a few of the these.
+
+```{r}
+df$dcd_map_baseline %>%
+    head()
+
+df$dcd_map_baseline %>%
+    tail()
+
+df$dcd_map_baseline %>%
+    table()
+```
+
+```{r}
+df$apnea %>%
+    head()
+
+df$apnea %>%
+    tail()
+
+df$apnea %>%
+    table()
+```
+
+This seems to be in order.
+
 **LOADBEARING** — A column populated in one workbook and empty in the other is a perfect label proxy. This table is where such leaks are first visible.
 Consumed by: the missingness filter, and the leak discussion in `00`'s concat provenance.
 
 ```{r}
 missing_by_class <- df %>%
   group_by(progression_to_death) %>%
-  summarise(across(everything(), ~sum(is.na(.x)))) %>%
-  pivot_longer(-progression_to_death, names_to = "feature", values_to = "null_count")
-
-class_totals <- df %>%
-  count(progression_to_death)
-
-missing_by_class <- missing_by_class %>%
-  left_join(class_totals, by = "progression_to_death") %>%
+  summarise(
+    n = n(),
+    across(all_of(numeric_cols), ~sum(is.na(.x))),
+    .groups = "drop"
+  ) %>%
+  pivot_longer(-c(progression_to_death, n), names_to = "feature", values_to = "null_count") %>%
   mutate(null_pct = null_count / n * 100) %>%
   filter(null_count > 0) %>%
   select(feature, progression_to_death, null_count, null_pct) %>%
-  pivot_wider(names_from = progression_to_death, values_from = c(null_count, null_pct), names_sep = "_")
+  pivot_wider(names_from = progression_to_death,
+              values_from = c(null_count, null_pct), names_sep = "_")
 
 missing_by_class
+```
+
+We will spot check a few of these to be sure:
+
+```{r}
+length(which(is.na(df$age)))
+
+# does it add up to the total
+103 + 134
+```
+
+```{r}
+length(which(is.na(df$heparin_dose_units)))
+# does it add up to the total
+125 + 134
 ```
 
 We visualize missingness using a heatmap.
 
 ```{r}
-heatmap_df <- df %>%
-  select(all_of(numeric_cols)) %>%
-  mutate(across(everything(), ~as.factor(as.integer(is.na(.x)))))
-
-# Note: ggplot2 heatmap usually requires long format
-heatmap_long <- heatmap_df %>%
-  mutate(row_id = row_number()) %>%
-  pivot_longer(-row_id) %>%
-  mutate(value = as.factor(value))
-
-ggplot(heatmap_long, aes(x = name, y = row_id, fill = value)) +
-  geom_tile() +
-  scale_fill_manual(values = c("white", "black"), labels = c("Present", "Missing"), name = "Status") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
-  labs(title = "Missingness Heatmap", x = "Feature", y = "Row Index")
+image(t(is.na(as.matrix(df[numeric_cols]))), col = c("grey95", "black"), axes = FALSE)
 ```
+A real leakage risk is anything where the proportion of missing values is much higher in one class than the other.
 
-Distribution of missing features per row.
 
 ```{r}
-# Exclude ID and label columns to ensure we only count feature missingness
-df %>%
-  select(-any_of(c("progression_to_death", "observation", "alias", "alias_filled"))) %>%
-  mutate(across(everything(), ~as.integer(is.na(.x)))) %>%
-  rowSums() %>%
-  table() %>%
-  as.data.frame() %>%
-  setNames(c("missing_count", "row_count"))
+df_na_frac <- df %>%
+  group_by(progression_to_death) %>%
+  summarise(across(all_of(numeric_cols), ~mean(is.na(.x)))) %>%
+  # pivot out the do the calculations and then back because it reads cleaner
+  pivot_longer(-progression_to_death, names_to = "feature", values_to = "frac_na") %>%
+  pivot_wider(names_from = progression_to_death, values_from = frac_na,
+              names_prefix = "na_") %>%
+  arrange(desc(pmax(na_0, na_1)))
 ```
+
 
 ## 4. Descriptive separation by outcome
 
-We check if modelling results are visible in raw data using **first observations only** (one row per patient).
+We check if modeling results are visible in raw data using **first observations only** (one row per patient).
 
 ```{r}
 df_first <- df %>%
   filter(observation == 1)
 ```
 
-Numeric separation (Wilcoxon rank-sum).
+### Numeric separation (Wilcoxon rank-sum).
 
 ```{r}
-numeric_sep <- lapply(numeric_cols, function(col) {
-  pos_vals <- df_first %>% filter(progression_to_death == 1) %>% pull(!!sym(col))
-  neg_vals <- df_first %>% filter(progression_to_death == 0) %>% pull(!!sym(col))
+numeric_sep <- df_first %>%
+  select(progression_to_death, all_of(numeric_cols)) %>%
+  pivot_longer(-progression_to_death, names_to = "feature") %>%
+  group_by(feature) %>%
+  summarise(
+    pos_median = median(value[progression_to_death == 1], na.rm = TRUE),
+    neg_median = median(value[progression_to_death == 0], na.rm = TRUE),
+    p_value = tryCatch(
+      wilcox.test(value ~ progression_to_death)$p.value,
+      error = function(e) NA_real_
+    )
+  ) %>%
+  arrange(p_value)
 
-  if(length(pos_vals) < 1 || length(neg_vals) < 1) return(NULL)
-
-  # Use a tryCatch to avoid crashing on degenerate data (e.g. all NAs)
-  test_res <- tryCatch({
-    wilcox.test(pos_vals, neg_vals)
-  }, error = function(e) NULL)
-
-  if(is.null(test_res)) return(NULL)
-
-  data.frame(
-    feature = col,
-    pos_median = median(pos_vals, na.rm = TRUE),
-    neg_median = median(neg_vals, na.rm = TRUE),
-    p_value = test_res$p.value,
-    stringsAsFactors = FALSE
-  )
-}) %>% bind_rows() %>% arrange(p_value)
-```
-
-```{r}
 numeric_sep
 ```
 
-Categorical separation (Fisher/Chi-sq).
+```{r}
+(
+numeric_sep_features <- numeric_sep %>%
+    pull(feature)
+)
+```
+
+### Categorical separation (Fisher/Chi-sq).
 
 ```{r}
 categorical_cols <- df %>%
