@@ -189,6 +189,7 @@ results <- analyze(all_obs)
 first_results <- analyze(first_obs)
 ```
 
+```{r}
 # Unstable Fits Receipt
 unstable_results <- results %>% filter(unstable)
 print("\n--- Unstable Fits Receipt ---")
