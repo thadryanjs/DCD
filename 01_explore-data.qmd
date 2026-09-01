@@ -9,18 +9,233 @@ Exploratory analysis with detailed missingness patterns.
 library(dplyr)
 library(tidyr)
 library(ggplot2)
+library(lubridate)
 library(nanoparquet)
 ```
 
 ```{r}
-df <- nanoparquet::read_parquet("data/processed/combined-dataset.parquet")
+df_raw <- nanoparquet::read_parquet("data/processed/combined-dataset.parquet")
 
+df <- df_raw
+```
+
+## Types
+
+```{r}
 numeric_cols <- df %>%
   select(where(is.numeric)) %>%
   select(-any_of(c("progression_to_death", "observation"))) %>%
   names()
+
+numeric_cols %>%
+    length()
 ```
 
+This flags 23 columns as numeric. We will spot check them to make sure nothing odd happened.
+
+```{r}
+df %>%
+    select(all_of(numeric_cols)) %>%
+    select(1:4)
+```
+
+```{r}
+df %>%
+    select(all_of(numeric_cols)) %>%
+    select(5:8)
+```
+
+```{r}
+df %>%
+    select(all_of(numeric_cols)) %>%
+    select(9:12)
+```
+
+```{r}
+df %>%
+    select(all_of(numeric_cols)) %>%
+    select(13:16)
+```
+
+```{r}
+df %>%
+    select(all_of(numeric_cols)) %>%
+    select(17:20)
+```
+
+```{r}
+df %>%
+    select(all_of(numeric_cols)) %>%
+    select(21:23)
+```
+
+```{r}
+non_numeric_cols <- df %>%
+    select(-all_of(numeric_cols)) %>%
+    names()
+
+length(non_numeric_cols)
+```
+
+```{r}
+df %>%
+    select(all_of(non_numeric_cols)) %>%
+    select(1:4)
+```
+
+```{r}
+df %>%
+    select(all_of(non_numeric_cols)) %>%
+    select(5:8)
+```
+
+```{r}
+df %>%
+    select(all_of(non_numeric_cols)) %>%
+    select(9:12)
+```
+
+```{r}
+df %>%
+    select(all_of(non_numeric_cols)) %>%
+    select(13:16)
+```
+
+```{r}
+df %>%
+    select(all_of(non_numeric_cols)) %>%
+    select(17:20)
+```
+
+```{r}
+df %>%
+    select(all_of(non_numeric_cols)) %>%
+    select(21:24)
+```
+
+```{r}
+df %>%
+    select(all_of(non_numeric_cols)) %>%
+    select(25:28)
+```
+
+Removing the dates, most of these look like they a read in correctly
+
+```{r}
+date_cols <- df %>%
+    select(where(is.POSIXct)) %>%
+    names()
+
+date_cols
+```
+
+We can then get our official categories.
+
+```{r}
+categorical_cols <- df %>%
+    select(-all_of(numeric_cols), -all_of(date_cols)) %>%
+    names()
+
+categorical_cols %>%
+    length()
+```
+
+```{r}
+df %>%
+    select(all_of(categorical_cols)) %>%
+    select(1:4) %>%
+    print(width=Inf)
+```
+
+```{r}
+df %>%
+    select(all_of(categorical_cols)) %>%
+    select(5:8) %>%
+    print(width=Inf)
+```
+
+```{r}
+df %>%
+    select(all_of(categorical_cols)) %>%
+    select(9:12) %>%
+    print(width=Inf)
+```
+
+```{r}
+df %>%
+    select(all_of(categorical_cols)) %>%
+    select(13:16) %>%
+    print(width=Inf)
+```
+
+We determine if this covers all our columns.
+
+```{r}
+length(c(categorical_cols, numeric_cols, date_cols))
+ncol(df)
+```
+
+Not quite.
+
+```{r}
+df %>%
+    select(-all_of(c(categorical_cols, numeric_cols, date_cols)))
+
+to_factor <- c("alias", "alias_filled", "observation", "progression_to_death")
+```
+```{r}
+df <- df %>%
+    mutate_at(to_factor, as.factor)
+```
+
+```{r}
+df %>%
+```
+
+```{r}
+df %>%
+    select(all_of(to_factor)) %>%
+    tail()
+```
+
+
+These are ready to add to the categorical list.
+
+```{r}
+categorical_cols <- c(categorical_cols, to_factor)
+```
+
+Now we need to inspect this "dcd_map_baseline" column.
+
+```{r}
+df %>%
+    pull(dcd_map_baseline) %>%
+    is.na()%>%
+    table()
+```
+
+It looks like there is nothing here.
+
+```{r}
+exclude_cols <- c("dcd_map_baseline")
+```
+
+We still need to make sure the types of our categorical variables are typed correctly.
+
+```{r}
+df %>%
+    select(all_of(categorical_cols)) %>%
+    glimpse() %>%
+    print(n=Inf)
+```
+
+```{r}
+df <- df %>%
+    mutate_at(categorical_cols, as.factor) %>%
+    select(all_of(categorical_cols)) %>%
+    glimpse() %>%
+    print(n=Inf)
+```
 ## 1. Class and patient distributions
 
 Rows per class:
