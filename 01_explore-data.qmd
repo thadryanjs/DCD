@@ -113,12 +113,6 @@ df %>%
   select(21:24)
 ```
 
-```{r}
-df %>%
-  select(all_of(non_numeric_cols)) %>%
-  select(25:28)
-```
-
 Removing the dates, most of these look like they a read in correctly
 
 ```{r}
@@ -385,68 +379,6 @@ df_na_frac <- df %>%
 ```
 
 
-## 4. Descriptive separation by outcome
-
-We check if modeling results are visible in raw data using **first observations only** (one row per patient).
-
-```{r}
-df_first <- df %>%
-  filter(observation == 1)
-```
-
-### Numeric separation (Wilcoxon rank-sum).
-
-```{r}
-numeric_sep <- df_first %>%
-  select(progression_to_death, all_of(numeric_cols)) %>%
-  pivot_longer(-progression_to_death, names_to = "feature") %>%
-  group_by(feature) %>%
-  summarise(
-    pos_median = median(value[progression_to_death == 1], na.rm = TRUE),
-    neg_median = median(value[progression_to_death == 0], na.rm = TRUE),
-    p_value = tryCatch(
-      wilcox.test(value ~ progression_to_death)$p.value,
-      error = function(e) NA_real_
-    )
-  ) %>%
-  arrange(p_value)
-
-numeric_sep %>%
-    print(n=Inf)
-```
-
-```{r}
-(
-  numeric_sep_features <- numeric_sep %>%
-    pull(feature)
-)
-```
-
-### Categorical separation (Fisher/Chi-sq).
-
-```{r}
-cat_sep <- df_first %>%
-  select(progression_to_death, all_of(setdiff(
-    categorical_cols,
-    c("alias", "alias_filled", "observation", "progression_to_death")
-  ))) %>%
-  mutate(across(everything(), as.character)) %>%
-  pivot_longer(-progression_to_death, names_to = "feature") %>%
-  group_by(feature) %>%
-  summarise(
-    n_levels = n_distinct(value, na.rm = TRUE),
-    p_value = tryCatch(
-      fisher.test(table(value, progression_to_death))$p.value,
-      error = function(e) NA_real_
-    )
-  ) %>%
-  arrange(p_value)
-
-cat_sep %>%
-    print(n=Inf)
-```
-
-
 ## 5. Feature filters
 
 # Exclusions
@@ -561,6 +493,70 @@ print(sprintf("Final feature set: %d features", length(candidates)))
 cat(paste(candidates, collapse = "\n"))
 ```
 
+## 4. Descriptive separation by outcome
+
+We check if modeling results are visible in raw data using **first observations only** (one row per patient).
+
+```{r}
+df_first <- df %>%
+  filter(observation == 1)
+```
+
+### Numeric separation (Wilcoxon rank-sum).
+
+```{r}
+# Use candidates instead of all numeric columns to ensure leak-free separation analysis
+numeric_candidates <- candidates[sapply(candidates, function(c) is.numeric(df[[c]]))]
+
+numeric_sep <- df_first %>%
+  select(progression_to_death, all_of(numeric_candidates)) %>%
+  pivot_longer(-progression_to_death, names_to = "feature") %>%
+  group_by(feature) %>%
+  summarise(
+    pos_median = median(value[progression_to_death == 1], na.rm = TRUE),
+    neg_median = median(value[progression_to_death == 0], na.rm = TRUE),
+    p_value = tryCatch(
+      wilcox.test(value ~ progression_to_death)$p.value,
+      error = function(e) NA_real_
+    )
+  ) %>%
+  arrange(p_value)
+
+numeric_sep %>%
+    print(n=Inf)
+```
+
+```{r}
+(
+  numeric_sep_features <- numeric_sep %>%
+    pull(feature)
+)
+```
+
+### Categorical separation (Fisher/Chi-sq).
+
+```{r}
+# Use candidates instead of all categorical columns
+cat_candidates <- candidates[sapply(candidates, function(c) !is.numeric(df[[c]]))]
+
+cat_sep <- df_first %>%
+  select(progression_to_death, all_of(cat_candidates)) %>%
+  mutate(across(everything(), as.character)) %>%
+  pivot_longer(-progression_to_death, names_to = "feature") %>%
+  group_by(feature) %>%
+  summarise(
+    n_levels = n_distinct(value, na.rm = TRUE),
+    p_value = tryCatch(
+      fisher.test(table(value, progression_to_death))$p.value,
+      error = function(e) NA_real_
+    )
+  ) %>%
+  arrange(p_value)
+
+cat_sep %>%
+    print(n=Inf)
+```
+
 ## 6. Correlation
 
 We report highly correlated numeric features (|r| > 0.9). This section reports pairs but drops nothing.
@@ -621,4 +617,3 @@ write.csv(feature_artifact, "output/selected-features.csv", row.names = FALSE)
 print(sprintf("Final feature set: %d features", length(candidates)))
 cat(paste(candidates, collapse = "\n"))
 ```
-
