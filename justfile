@@ -5,6 +5,9 @@
 format:
     pixi run ruff format *.qmd || pixi run black *.py
 
+format-r:
+    pixi run Rscript -e "styler::style_dir('.')"
+
 # Render one chapter at a time. Quarto caches via freeze, so re-rendering
 # only re-executes chapters whose source changed.
 process-data:

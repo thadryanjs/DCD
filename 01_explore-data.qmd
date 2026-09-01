@@ -1,10 +1,9 @@
----
-title: Data Exploration
----
+
+
+# Exploratory Analysis
 
 Exploratory analysis with detailed missingness patterns.
 
-# Setup
 
 ```{r}
 library(dplyr)
@@ -13,8 +12,8 @@ library(ggplot2)
 library(nanoparquet)
 ```
 
-```{r}
 dir.create("output", showWarnings = FALSE)
+```{r}
 df <- nanoparquet::read_parquet("data/processed/combined-dataset.parquet")
 ```
 
@@ -23,10 +22,11 @@ df <- nanoparquet::read_parquet("data/processed/combined-dataset.parquet")
 Rows per class:
 
 ```{r}
-df %>% count(progression_to_death)
+df %>%
+  count(progression_to_death)
 ```
 
-Patients per class and observations per patient.
+Visualize the patients per class and observations per patient.
 
 ```{r}
 df %>%
@@ -41,60 +41,70 @@ df %>%
   )
 ```
 
-Observations-per-patient distribution. This variance informs the equal-weighting limitation in the patient-level GLM.
+We visualize the distribution of observations per patient, stratified by outcome.
+This checks if one class is more "dense" than the other, which could lead to temporal leakage.
 
 ```{r}
 df %>%
   group_by(progression_to_death, alias_filled) %>%
   summarise(obs = n(), .groups = "drop") %>%
-  count(progression_to_death, obs) %>%
-  arrange(progression_to_death, obs)
+  ggplot(aes(x = obs, fill = factor(progression_to_death))) +
+  geom_histogram(binwidth = 1, alpha = 0.4, position = "identity", color = "white") +
+  theme_minimal() +
+  labs(title = "Observations per Patient Distribution",
+       x = "Number of Observations",
+       y = "Patient Count",
+       fill = "Outcome (0=Neg, 1=Pos)")
 ```
 
-## 2. Within-patient stability
+# 2. Within-patient stability
 
-Quantify variance within patients relative to population variance.
+We quantify how much features fluctuate within a patient relative to the population.
+A low ratio suggests that repeated measurements are redundant, justifying a "First Look Only" model.
 
 ```{r}
-# Identify numeric features (excluding label and ID)
-numeric_cols <- df %>%
-  select(where(is.numeric)) %>%
-  select(-any_of(c("progression_to_death", "observation", "alias", "alias_filled"))) %>%
-  names()
+# 1. Global SDs
+global_sds <- df %>%
+  select(where(is.numeric), -any_of(c("progression_to_death", "observation", "alias", "alias_filled"))) %>%
+  summarise(across(everything(), ~sd(.x, na.rm = TRUE))) %>%
+  pivot_longer(everything(), names_to = "feature", values_to = "global_sd")
 
-stability_results <- lapply(numeric_cols, function(col) {
-  global_sd <- sd(df[[col]], na.rm = TRUE)
-  if(is.na(global_sd) || global_sd == 0) return(NULL)
+# 2. Mean of within-patient SDs
+within_sds <- df %>%
+  select(where(is.numeric), alias_filled, -any_of(c("progression_to_death", "observation"))) %>%
+  pivot_longer(-alias_filled, names_to = "feature", values_to = "val") %>%
+  group_by(feature, alias_filled) %>%
+  summarise(s = sd(val, na.rm = TRUE), .groups = "drop") %>%
+  group_by(feature) %>%
+  summarise(within_sd = mean(s, na.rm = TRUE), .groups = "drop")
 
-  within_sd <- df %>%
-    group_by(alias_filled) %>%
-    summarise(s = sd(!!sym(col), na.rm = TRUE), .groups = "drop") %>%
-    filter(!is.na(s)) %>%
-    pull(s) %>%
-    mean()
+# 3. Combine and calculate ratio
+stability_results <- global_sds %>%
+  inner_join(within_sds, by = "feature") %>%
+  mutate(ratio = within_sd / global_sd) %>%
+  filter(!is.na(ratio), is.finite(ratio)) %>%
+  arrange(ratio)
 
-  if(is.na(within_sd)) return(NULL)
-
-  data.frame(feature = col, ratio = within_sd / global_sd, stringsAsFactors = FALSE)
-}) %>% bind_rows() %>% arrange(ratio)
+# Store for later use in heatmap
+numeric_cols <- stability_results$feature
 ```
 
 ```{r}
-stability_results %>%
+stability_results <- stability_results %>%
   mutate(status = if_else(ratio < 0.3, "Stable", "Volatile"))
+
+stability_results %>%
+  print(n=Inf)
 ```
 
 ```{r}
-print(sprintf("Average Stability Ratio: %.3f", mean(stability_results$ratio)))
+print(sprintf("Average Stability Ratio: %.3f",
+              mean(stability_results$ratio, na.rm = TRUE)))
 ```
-
-**Interpretation:** The Stability Ratio ($\frac{\text{mean}(\sigma_{\text{patient}})}{\sigma_{\text{global}}}$) justifies the "First Look Only" design. A ratio < 0.3 suggests repeated observations are largely redundant.
-
-Note that `global_sd` is computed on pooled data across both classes, meaning it includes between-class variance, which makes the ratio flatter than a true within-versus-between patient comparison.
 
 ## 3. Missingness
 
-Missing count and percent per column.
+We analyze missing count and percent per column.
 
 ```{r}
 missing_stats <- df %>%
@@ -102,9 +112,7 @@ missing_stats <- df %>%
   pivot_longer(everything(), names_to = "feature", values_to = "null_count") %>%
   mutate(null_pct = null_count / nrow(df) * 100) %>%
   arrange(desc(null_pct))
-```
 
-```{r}
 missing_stats
 ```
 
@@ -117,7 +125,8 @@ missing_by_class <- df %>%
   summarise(across(everything(), ~sum(is.na(.x)))) %>%
   pivot_longer(-progression_to_death, names_to = "feature", values_to = "null_count")
 
-class_totals <- df %>% count(progression_to_death)
+class_totals <- df %>%
+  count(progression_to_death)
 
 missing_by_class <- missing_by_class %>%
   left_join(class_totals, by = "progression_to_death") %>%
@@ -125,22 +134,16 @@ missing_by_class <- missing_by_class %>%
   filter(null_count > 0) %>%
   select(feature, progression_to_death, null_count, null_pct) %>%
   pivot_wider(names_from = progression_to_death, values_from = c(null_count, null_pct), names_sep = "_")
-```
 
-```{r}
 missing_by_class
 ```
 
-Missingness Heatmap.
+We visualize missingness using a heatmap.
 
 ```{r}
-# Downsample for heatmap
-set.seed(8675309)
-n_sample <- min(nrow(df), 1000)
 heatmap_df <- df %>%
   select(all_of(numeric_cols)) %>%
-  mutate(across(everything(), ~as.factor(as.integer(is.na(.x))))) %>%
-  slice_sample(n = n_sample)
+  mutate(across(everything(), ~as.factor(as.integer(is.na(.x)))))
 
 # Note: ggplot2 heatmap usually requires long format
 heatmap_long <- heatmap_df %>%
@@ -415,3 +418,4 @@ write.csv(feature_artifact, "output/selected-features.csv", row.names = FALSE)
 print(sprintf("Final feature set: %d features", length(candidates)))
 cat(paste(candidates, collapse = "\n"))
 ```
+

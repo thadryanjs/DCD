@@ -45,16 +45,20 @@ df_pos_tail_before %>%
 ```
 
 ```{r}
-df_neg_raw %>%
+df_neg_head_before <- df_neg_raw %>%
     select(row_number, Alias) %>%
-    head(27) %>%
+    head(27)
+
+df_neg_head_before %>%
     print(n=Inf)
 
 
 ```{r}
-df_neg_raw %>%
+df_neg_tail_before <- df_neg_raw %>%
     select(row_number, Alias) %>%
-    tail(27) %>%
+    tail(27)
+
+df_neg_tail_before %>%
     print(n=Inf)
 ```
 
@@ -104,46 +108,31 @@ print(sprintf("Negative empty rows dropped: %d", rows_before_neg - rows_after_ne
 The `Alias` column in the negative dataset uses merged cells, which appear as NAs. We propagate the ID forward/downward.
 
 ```{r}
-# Positive view before
-before_head_pos <- df_pos_raw %>%
-    select(row_number, Alias) %>% head(27)
-
-before_tail_pos <- df_pos_raw %>%
-    select(row_number, Alias) %>% tail(27)
-```
-
-```{r}
 # Positive mutation
 na_before_pos <- sum(is.na(df_pos_raw$Alias))
 df_pos_raw <- df_pos_raw %>% fill(Alias, .direction = "down")
 na_after_pos <- sum(is.na(df_pos_raw$Alias))
 
-after_head_pos <- df_pos_raw %>% select(row_number, Alias) %>% head(27)
-after_tail_pos <- df_pos_raw %>% select(row_number, Alias) %>% tail(27)
+df_pos_head_after <- df_pos_raw %>% select(row_number, Alias) %>% head(27)
+df_pos_tail_after <- df_pos_raw %>% select(row_number, Alias) %>% tail(27)
 
 print(sprintf("Positive Alias NAs filled: %d of %d", na_before_pos - na_after_pos, na_before_pos))
 ```
 
 ```{r}
-before_head_pos
+df_pos_head_before
 ```
 
 ```{r}
-after_head_pos
+df_pos_head_after
 ```
 
 ```{r}
-before_tail_pos
+df_pos_tail_before
 ```
 
 ```{r}
-after_tail_pos
-```
-
-```{r}
-# Negative view before
-before_head_neg <- df_neg_raw %>% select(row_number, Alias) %>% head(27)
-before_tail_neg <- df_neg_raw %>% select(row_number, Alias) %>% tail(27)
+df_pos_tail_after
 ```
 
 ```{r}
@@ -152,26 +141,26 @@ na_before_neg <- sum(is.na(df_neg_raw$Alias))
 df_neg_raw <- df_neg_raw %>% fill(Alias, .direction = "down")
 na_after_neg <- sum(is.na(df_neg_raw$Alias))
 
-after_head_neg <- df_neg_raw %>% select(row_number, Alias) %>% head(27)
-after_tail_neg <- df_neg_raw %>% select(row_number, Alias) %>% tail(27)
+df_neg_head_after <- df_neg_raw %>% select(row_number, Alias) %>% head(27)
+df_neg_tail_after <- df_neg_raw %>% select(row_number, Alias) %>% tail(27)
 
 print(sprintf("Negative Alias NAs filled: %d of %d", na_before_neg - na_after_neg, na_before_neg))
 ```
 
 ```{r}
-before_head_neg
+df_neg_head_before
 ```
 
 ```{r}
-after_head_neg
+df_neg_head_after
 ```
 
 ```{r}
-before_tail_neg
+df_neg_tail_before
 ```
 
 ```{r}
-after_tail_neg
+df_neg_tail_after
 ```
 
 ## 4. Observation numbering
