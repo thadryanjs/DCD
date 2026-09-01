@@ -158,13 +158,13 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
             "clf__C": [0.01, 0.1, 1, 10, 100]
         },
         "Random Forest": {
-            "clf__n_estimators": [100, 200],
+            "clf__n_estimators": [100],
             "clf__max_depth": [None, 10],
             "clf__min_samples_split": [2, 5]
         },
         "XGBoost": {
             "clf__learning_rate": [0.1],
-            "clf__max_depth": [3, 5],
+            "clf__max_depth": [3],
             "clf__n_estimators": [100],
             "clf__scale_pos_weight": [spw]
         }
@@ -211,9 +211,10 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
             for fold_idx, (outer_train_idx, outer_test_idx) in enumerate(kf_outer.split(x_train, y_train, groups=groups_train)):
                 x_tr_out, x_te_out = x_train.iloc[outer_train_idx], x_train.iloc[outer_test_idx]
                 y_tr_out, y_te_out = y_train[outer_train_idx], y_train[outer_test_idx]
-                gr_tr_out = groups_train[outer_train_idx]
-                gr_te_out = groups_train[outer_test_idx]
-                assert len(set(gr_tr_out).intersection(set(gr_te_out))) == 0, f"Patient leakage in CV fold {fold_idx} (repeat {repeat})"
+                # Renamed from gr_tr_out to avoid shadowing
+                groups_outer_train = groups_train[outer_train_idx]
+                groups_outer_test = groups_train[outer_test_idx]
+                assert len(set(groups_outer_train).intersection(set(groups_outer_test))) == 0, f"Patient leakage in CV fold {fold_idx} (repeat {repeat})"
 
                 if name == "Logistic Regression":
                     stats = get_class_stats(y_te_out, gr_te_out)
