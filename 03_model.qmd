@@ -217,11 +217,11 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
                 assert len(set(groups_outer_train).intersection(set(groups_outer_test))) == 0, f"Patient leakage in CV fold {fold_idx} (repeat {repeat})"
 
                 if name == "Logistic Regression":
-                    stats = get_class_stats(y_te_out, gr_te_out)
+                    stats = get_class_stats(y_te_out, groups_outer_test)
                     fold_composition.append({
                         "repeat": repeat + 1,
                         "fold": fold_idx + 1,
-                        "n_patients": len(np.unique(gr_te_out)),
+                        "n_patients": len(np.unique(groups_outer_test)),
                         **stats
                     })
 
