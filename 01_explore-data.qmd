@@ -221,8 +221,7 @@ We still need to make sure the types of our categorical variables are typed corr
 ```{r}
 df %>%
   select(all_of(categorical_cols)) %>%
-  glimpse() %>%
-  print(n = Inf)
+  glimpse()
 ```
 
 ```{r}
@@ -231,8 +230,7 @@ df <- df %>%
 
 df %>%
   select(all_of(categorical_cols)) %>%
-  glimpse() %>%
-  print(n = Inf)
+  glimpse()
 ```
 
 The final set can now be constructed:
@@ -413,7 +411,8 @@ numeric_sep <- df_first %>%
   ) %>%
   arrange(p_value)
 
-numeric_sep
+numeric_sep %>%
+    print(n=Inf)
 ```
 
 ```{r}
@@ -443,7 +442,8 @@ cat_sep <- df_first %>%
   ) %>%
   arrange(p_value)
 
-cat_sep
+cat_sep %>%
+    print(n=Inf)
 ```
 
 
@@ -586,10 +586,23 @@ if (nrow(cor_pairs) > 0) {
 
 ## 7. Write outputs
 
+Factors were useful for exploration but are not portable to the Python side, so we cast back before writing: the label and observation index must be integers. Everything else is a character for OneHotEncoder.
+
 ```{r}
-# Analytic dataset: Selected features + scaffolding
+# as.integer() on a factor returns the level index, not the value, so
+# as.character() first.
 df_analytic <- df %>%
-  select(all_of(candidates), any_of(c("alias_filled", "observation", "progression_to_death")))
+  select(
+    all_of(candidates),
+    any_of(c("alias_filled", "observation", "progression_to_death"))
+  ) %>%
+  mutate(
+    progression_to_death = as.integer(as.character(progression_to_death)),
+    observation = as.integer(as.character(observation)),
+    across(where(is.factor), as.character)
+  )
+
+stopifnot(!any(sapply(df_analytic, is.factor)))
 
 nanoparquet::write_parquet(df_analytic, "data/processed/analytic-dataset.parquet")
 ```
