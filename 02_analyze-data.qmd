@@ -11,13 +11,12 @@ The **patient-level logistic regression (GLM)** is the proper inferential model 
 
 Missing values are handled using Multiple Imputation by Chained Equations (MICE)
 with $m=5$ imputations. Each feature is fitted once per imputed dataset, and the
-results are pooled using Rubin's rules. This allows the final confidence intervals
-to account for the uncertainty introduced by the imputation process.
+results are pooled using Rubin's rules to account for the uncertainty introduced by the imputation process.
 
 Both the "all observations" and "first-look only" analyses are pooled across
 imputations for consistency. Features are scaled, so estimates are per standard deviation.
 
-**Note on Interpretation:** The `estimate` in the output CSV is the log-odds per standard deviation of the patient mean. These are unadjusted marginal effects. In `04_analyze-model.py`, these are exponentiated to produce Odds Ratios (OR).
+**Note on Interpretation:** The `estimate` in the output CSV is the log-odds per standard deviation of the patient mean (unadjusted marginal effect). These are univariate screens, not mutually adjusted effects. In `04_analyze-model.py`, these are exponentiated to produce Odds Ratios (OR).
 
 
 ```{r}
@@ -123,20 +122,47 @@ analyze <- function(d) {
   for (f in setdiff(names(d), label)) {
     fits <- list()
     separated <- FALSE
+    singular <- 0
+    nonconv <- 0
     for (i in 1:m) {
-      fits[[i]] <- glm(as.formula(sprintf("%s ~ `%s`", label, f)),
-        complete(imp, i),
-        family = binomial
-      )
-      p <- fitted(fits[[i]])
+      fit <- tryCatch({
+        glm(as.formula(sprintf("%s ~ `%s`", label, f)),
+          complete(imp, i),
+          family = binomial
+        )
+      }, error = function(e) NULL)
+      
+      if(is.null(fit)) {
+        nonconv <- nonconv + 1
+        next
+      }
+      
+      fits[[i]] <- fit
+      p <- fitted(fit)
       separated <- separated || any(p < 1e-8 | p > 1 - 1e-8)
+      
+      # Singularity check: NA in standard errors of coefficients
+      if(any(is.na(summary(fit)$coefficients[, "Std. Error"]))) {
+        singular <- singular + 1
+      }
     }
+    
+    # Only pool if we have fits
+    if(length(fits) == 0) {
+      out <- rbind(out, data.frame(
+        feature = f, estimate = NA, std_error = NA, p_value = NA,
+        ci_low = NA, ci_high = NA,
+        unstable = TRUE, separated_flag = separated,
+        frac_singular = singular/m, frac_nonconv = nonconv/m
+      ))
+      next
+    }
+
     # Apply Rubin's Rules via pool()
     s <- summary(pool(as.mira(fits)), conf.int = TRUE)
     s <- s[s$term != "(Intercept)", ]
 
     # Handle categorical features (multiple levels) by taking the first non-intercept estimate
-    # for the purpose of the univariate stability flag.
     est <- s$estimate[1]
     se <- s$std.error[1]
     pval <- s$p.value[1]
@@ -147,7 +173,9 @@ analyze <- function(d) {
       feature = f, estimate = est, std_error = se, p_value = pval,
       ci_low = lo, ci_high = hi,
       unstable = separated || abs(est) > 10 || se > 5,
-      separated_flag = separated
+      separated_flag = separated,
+      frac_singular = singular/m,
+      frac_nonconv = nonconv/m
     ))
   }
   out %>%
@@ -208,7 +236,7 @@ ggplot(plot_df, aes(or, feature)) +
   labs(
     title = "DCD Progression: Unadjusted Marginal Odds Ratios (95% CI)",
     subtitle = sprintf(
-      "%d features; %d unstable fits excluded",
+      "%d features; %d unstable fits excluded (MICE m=5, Rubin's Rules)",
       nrow(plot_df), sum(results$unstable)
     ),
     x = "Unadjusted Marginal Odds Ratio per SD (log scale)", y = NULL
