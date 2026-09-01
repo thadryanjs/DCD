@@ -542,6 +542,7 @@ numeric_sep %>%
 ```{r}
 sig_numeric <- numeric_sep %>%
   filter(p_value < 0.05) %>%
+  slice_head(n = 12) %>%
   pull(feature)
 
 df_first %>%
@@ -552,7 +553,7 @@ df_first %>%
   facet_wrap(~feature, scales = "free") +
   theme_minimal() +
   labs(
-    title = "Significant Numeric Features (p < 0.05)",
+    title = "Top Significant Numeric Features (p < 0.05)",
     x = "Outcome (0=Neg, 1=Pos)",
     y = "Value",
     fill = "Outcome"
@@ -587,6 +588,7 @@ cat_sep %>%
 ```{r}
 sig_categorical <- cat_sep %>%
   filter(p_value < 0.05) %>%
+  slice_head(n = 12) %>%
   pull(feature)
 
 df_first %>%
@@ -597,7 +599,7 @@ df_first %>%
   facet_wrap(~feature, scales = "free") +
   theme_minimal() +
   labs(
-    title = "Significant Categorical Features (p < 0.05)",
+    title = "Top Significant Categorical Features (p < 0.05)",
     x = "Level",
     y = "Count",
     fill = "Outcome"
