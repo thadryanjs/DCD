@@ -113,6 +113,12 @@ df %>%
   select(21:24)
 ```
 
+```{r}
+df %>%
+  select(all_of(non_numeric_cols)) %>%
+  select(25:28)
+```
+
 Removing the dates, most of these look like they a read in correctly
 
 ```{r}
