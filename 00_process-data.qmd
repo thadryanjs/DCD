@@ -535,26 +535,15 @@ print(sprintf("Dimensions: %d x %d", nrow(df_all), ncol(df_all)))
 Final Summary:
 
 ```{r}
-# Compute obs per patient once to avoid nested summarise issues
-obs_per_pat <- df_all %>%
-  group_by(progression_to_death, alias) %>%
-  summarise(obs = n(), .groups = "drop")
-
 final_summary <- df_all %>%
-  group_by(progression_to_death) %>%
+  group_by(progression_to_death, alias) %>%
+  summarise(obs = n(), .groups = "drop_last") %>%
   summarise(
-    rows = n(),
-    patients = n_distinct(alias)
-  ) %>%
-  left_join(
-    obs_per_pat %>% 
-      group_by(progression_to_death) %>% 
-      summarise(
-        avg_obs = mean(obs),
-        max_obs = max(obs),
-        min_obs = min(obs)
-      ),
-    by = "progression_to_death"
+    rows = sum(obs),
+    patients = n(),
+    avg_obs = mean(obs),
+    max_obs = max(obs),
+    min_obs = min(obs)
   )
 
 final_summary
