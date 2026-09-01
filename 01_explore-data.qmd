@@ -429,7 +429,10 @@ leak_justifications
 ```
 
 ```{r}
-print(sprintf("Exclusions: %d features dropped", nrow(exc_dropped_table)))
+print(sprintf("Exclusions: %d in -> %d out (%d dropped)", 
+              length(names(df)), 
+              length(names(df)) - nrow(exc_dropped_table), 
+              nrow(exc_dropped_table)))
 ```
 
 ```{r}
@@ -452,7 +455,10 @@ miss_dropped_table <- missing_vals %>%
   mutate(reason = sprintf("%.1f%% missing", pct)) %>%
   select(feature, reason)
 
-print(sprintf("Missingness: %d features dropped", nrow(miss_dropped_table)))
+print(sprintf("Missingness: %d in -> %d out (%d dropped)", 
+              length(all_cols), 
+              length(all_cols) - nrow(miss_dropped_table), 
+              nrow(miss_dropped_table)))
 ```
 
 ```{r}
@@ -461,7 +467,9 @@ miss_dropped_table
 
 ### Variance
 
-Threshold: 0.01 (raw unscaled variance). This is unit-dependent and primarily catches degenerate columns.
+Threshold: 0.01 (raw unscaled variance). 
+
+**Note: This threshold is unit-dependent and not scale-free; it is used here primarily to catch degenerate columns.**
 
 ```{r}
 # Compute variance on all numeric columns
@@ -477,7 +485,10 @@ var_dropped_table <- var_vals %>%
   mutate(reason = sprintf("%.4f", variance)) %>%
   select(feature, reason)
 
-print(sprintf("Variance: %d features dropped", nrow(var_dropped_table)))
+print(sprintf("Variance: %d in -> %d out (%d dropped)", 
+              length(numeric_all), 
+              length(numeric_all) - nrow(var_dropped_table), 
+              nrow(var_dropped_table)))
 ```
 
 ```{r}
@@ -661,5 +672,6 @@ write.csv(feature_artifact, "output/selected-features.csv", row.names = FALSE)
 
 ```{r}
 print(sprintf("Final feature set: %d features", length(candidates)))
-cat(paste(candidates, collapse = "\n"))
+cat(paste(head(candidates, 10), collapse = "\n"))
+cat("\n...")
 ```
