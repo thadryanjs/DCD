@@ -12,7 +12,6 @@ library(ggplot2)
 library(nanoparquet)
 ```
 
-dir.create("output", showWarnings = FALSE)
 ```{r}
 df <- nanoparquet::read_parquet("data/processed/combined-dataset.parquet")
 ```

@@ -65,7 +65,7 @@ bundle:
 clean:
     mkdir -p reports
     mv output reports/ 2>/dev/null || true
-    rm -rf *_files *.html _freeze .quarto _book
+    rm -rf *_files *.html quarto_ipynb .quarto _book
 
 start-kernel:
   pixi run jupyter notebook --no-browser
