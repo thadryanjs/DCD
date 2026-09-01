@@ -505,7 +505,8 @@ all_dropped <- bind_rows(
   var_dropped_table
 )
 
-candidates <- setdiff(names(df), all_dropped$feature)
+# Also exclude date columns from the final ML feature set
+candidates <- setdiff(names(df), c(all_dropped$feature, date_cols))
 print(sprintf("Final feature set: %d features", length(candidates)))
 cat(paste(candidates, collapse = "\n"))
 ```

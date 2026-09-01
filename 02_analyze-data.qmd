@@ -96,11 +96,11 @@ all_obs <- to_patient(df_filtered, "All Observations")
 first_obs <- to_patient(df_filtered %>% filter(observation == 1), "First Look Only")
 
 r_feats <- setdiff(names(all_obs), label)
-sym_diff <- union(setdiff(r_feats, selected_feats), setdiff(selected_feats, r_feats))
+dropped_at_patient <- setdiff(selected_feats, r_feats)
 
-if (length(sym_diff) > 0) {
+if (length(dropped_at_patient) > 0) {
   print("Note: Some selected features were dropped because they became constant at patient-level:")
-  print(setdiff(selected_feats, r_feats))
+  print(dropped_at_patient)
 }
 ```
 
