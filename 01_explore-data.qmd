@@ -597,6 +597,7 @@ cat_sep <- df_first %>%
 
 cat_sep %>%
     print(n=Inf)
+```
 
 ```{r}
 sig_categorical <- cat_sep %>%
@@ -616,7 +617,6 @@ df_first %>%
     y = "Count",
     fill = "Outcome"
   )
-```
 ```
 
 ```{r}
