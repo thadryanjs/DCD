@@ -62,7 +62,7 @@ print(
 ```
 
 # Data Splitting (Consistency Check)
-We use the same GroupShuffleSplit parameters as `03_model.py` to ensure we are explaining the same training set.
+We load the training split artifact created in `03_model.py` to ensure we are explaining the same training set.
 
 ```{python}
 groups = df["alias_filled"].to_numpy()
@@ -71,8 +71,14 @@ y = df["progression_to_death"].to_numpy()
 ```
 
 ```{python}
-gss = GroupShuffleSplit(n_splits=1, train_size=0.8, random_state=8675309)
-train_idx, _ = next(gss.split(x_df, y, groups))
+# Load training patient list
+train_patients_path = data_dir / f"train_patients_{prefix}.csv"
+if not train_patients_path.exists():
+    raise FileNotFoundError(f"Training split artifact {train_patients_path} not found. Run 03_model.qmd first.")
+
+train_patients_list = pd.read_csv(train_patients_path)["alias_filled"].tolist()
+train_mask = np.isin(groups, train_patients_list)
+train_idx = np.where(train_mask)[0]
 ```
 
 ```{python}
@@ -309,6 +315,30 @@ dir_df.to_csv(plots_dir / f"rf_feature_directions_{prefix}.csv", index=False)
 print("\nTop Feature Directions:")
 print(dir_df.head(10).to_string(index=False))
 ```
+
+### Non-Monotonicity Investigation (SHAP Dependence)
+To investigate features with "Neutral" directions or suspected sign-flips (e.g., Feature 4), we plot
+the SHAP dependence. A non-monotonic (U-shaped) curve indicates that the feature's impact
+changes direction across its range, explaining why a median split might mask the effect.
+
+```{python}
+# Identify top 5 most important features for dependence plots
+top_5_feats = dir_df.head(5)["feature"].tolist()
+
+fig, axes = plt.subplots(len(top_5_feats), 1, figsize=(10, 4 * len(top_5_feats)))
+if len(top_5_feats) == 1: axes = [axes]
+
+for i, col in enumerate(top_5_feats):
+    shap.dependence_plot(col, shap_values_class1, x_train_transformed_df, ax=axes[i], show=False)
+    axes[i].set_title(f"SHAP Dependence: {col}")
+
+plt.tight_layout()
+plt.savefig(plots_dir / f"rf_shap_dependence_{prefix}.png")
+plt.close()
+
+print(f"✓ SHAP dependence plots saved to {plots_dir / f'rf_shap_dependence_{prefix}.png'}")
+```
+
 
 # Feature Agreement Analysis
 We compare the top drivers between the "Full" and "First Look" ML models to verify
