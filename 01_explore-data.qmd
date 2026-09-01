@@ -575,7 +575,7 @@ cat_sep <- df_first %>%
   summarise(
     n_levels = n_distinct(value, na.rm = TRUE),
     p_value = tryCatch(
-      fisher.test(table(value, progression_to_death))$p.value,
+      chisq.test(table(value, progression_to_death))$p.value,
       error = function(e) NA_real_
     )
   ) %>%
