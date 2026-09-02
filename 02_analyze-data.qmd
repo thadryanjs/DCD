@@ -67,7 +67,7 @@ Odds ratios per SD.
 plot_df <- results %>%
   mutate(or = exp(estimate), lo = exp(ci_low), hi = exp(ci_high), sig = p_adj < 0.05) %>%
   arrange(or) %>%
-  mutate(feature = factor(feature, feature))
+  mutate(feature = factor(feature, levels = rev(feature)))
 
 ggplot(plot_df, aes(or, feature)) +
   geom_vline(xintercept = 1, color = "red", linetype = "dashed") +
