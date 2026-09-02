@@ -4,19 +4,18 @@ title: 'Statistical Analysis'
 
 # Statistical Analysis
 
-## Statistical Framework: Patient-Level GLM
+## Statistical Framework: First-Look GLM
 The outcome (progression to death) is a patient-level constant; it does not vary across observations for a single individual. Consequently, a mixed-effects model (GLMM) with a patient random intercept is not identifiable, as there is no within-patient outcome variance to explain.
 
-The **patient-level logistic regression (GLM)** is the proper inferential model for this data structure. By averaging observations per patient, we reduce the problem to a standard binary classification task, avoiding the boundary variance estimates and attenuated fixed effects typical of inappropriately specified mixed models on time-invariant outcomes.
+The **First-Look logistic regression (GLM)** is the proper inferential model for this data structure. We analyze only the baseline (first) observation for each patient. This approach ensures that features precede the outcome process and aligns with the primary ML unit of analysis in the predictive model.
 
 Missing values are handled using Multiple Imputation by Chained Equations (MICE)
 with $m=5$ imputations. Each feature is fitted once per imputed dataset, and the
 results are pooled using Rubin's rules to account for the uncertainty introduced by the imputation process.
 
-Both the "all observations" and "first-look only" analyses are pooled across
-imputations for consistency. Features are scaled, so estimates are per standard deviation.
+Results are pooled across imputations for consistency. Features are scaled, so estimates are per standard deviation.
 
-**Note on Interpretation:** The `estimate` in the output CSV is the log-odds per standard deviation of the patient mean (unadjusted marginal effect). These are univariate screens, not mutually adjusted effects. In `04_analyze-model.py`, these are exponentiated to produce Odds Ratios (OR).
+**Note on Interpretation:** The `estimate` in the output CSV is the log-odds per standard deviation of the baseline measurement (unadjusted marginal effect). These are univariate screens, not mutually adjusted effects. In `04_analyze-model.qmd`, these are exponentiated to produce Odds Ratios (OR).
 
 
 ```{r}
@@ -38,41 +37,13 @@ df <- nanoparquet::read_parquet("data/processed/analytic-dataset.parquet")
 print(sprintf("%d rows, %d patients", nrow(df), n_distinct(df[[id]])))
 ```
 
-## Patient-Level Frames
-Average to one row per patient, drop the id, keep only columns with at least two
+## First-Look Frames
+Filter to the first observation per patient, drop the id, keep only columns with at least two
 distinct values, then scale. The distinct-value filter matters: a constant column
 becomes all `NaN` under `scale()` and makes mice fail with an unhelpful error.
 
 ```{r}
-to_patient <- function(d, name = "unnamed") {
-  d <- d %>%
-    select(-any_of("observation")) %>%
-    group_by(.data[[id]], .data[[label]]) %>%
-    summarise(
-      across(where(is.numeric), ~ mean(.x, na.rm = TRUE)),
-      across(where(is.character), ~ first(.x)),
-      .groups = "drop"
-    ) %>%
-    select(-all_of(id))
-
-  cols_before <- names(d)
-  d <- d[sapply(d, function(x) n_distinct(x, na.rm = TRUE) >= 2)]
-  cols_after <- names(d)
-  dropped <- setdiff(cols_before, cols_after)
-
-  if (length(dropped) > 0) {
-    print(sprintf(
-      "[%s] Dropped %d constant features: %s",
-      name, length(dropped), paste(dropped, collapse = ", ")
-    ))
-  }
-
-  d %>% mutate(across(where(is.numeric) & -all_of(label), ~ as.numeric(scale(.x))))
-}
-```
-
-```{r}
-# We defer calling to_patient until we have the selected feature set from 01_explore-data.qmd
+# We defer selecting the first-look frame until we have the selected feature set from 01_explore-data.qmd
 ```
 
 ```{r}
@@ -91,16 +62,25 @@ selected_feats_csv <- read_csv("output/selected-features.csv", show_col_types = 
 selected_feats <- selected_feats_csv$feature
 
 df_filtered <- df %>% select(all_of(selected_feats), all_of(label), all_of(id), any_of("observation"))
-all_obs <- to_patient(df_filtered, "All Observations")
-first_obs <- to_patient(df_filtered %>% filter(observation == 1), "First Look Only")
 
-r_feats <- setdiff(names(all_obs), label)
-dropped_at_patient <- setdiff(selected_feats, r_feats)
+# Construct First-Look Frame
+df_first_look <- df_filtered %>% 
+  filter(observation == 1) %>% 
+  select(-all_of(id), -any_of("observation"))
 
-if (length(dropped_at_patient) > 0) {
-  print("Note: Some selected features were dropped because they became constant at patient-level:")
-  print(dropped_at_patient)
+# Drop constant features
+cols_before <- names(df_first_look)
+df_first_look <- df_first_look[sapply(df_first_look, function(x) n_distinct(x, na.rm = TRUE) >= 2)]
+cols_after <- names(df_first_look)
+dropped <- setdiff(cols_before, cols_after)
+
+if (length(dropped) > 0) {
+  print(sprintf("Dropped %d constant features: %s", length(dropped), paste(dropped, collapse = ", ")))
 }
+
+# Scale features
+df_first_look <- df_first_look %>% 
+  mutate(across(where(is.numeric) & -all_of(label), ~ as.numeric(scale(.x))))
 ```
 
 ```{r}
@@ -185,8 +165,7 @@ analyze <- function(d) {
 ```
 
 ```{r}
-results <- analyze(all_obs)
-first_results <- analyze(first_obs)
+results <- analyze(df_first_look)
 ```
 
 ```{r}
@@ -213,8 +192,7 @@ print(head(results, 15))
 ```
 
 ```{r}
-write_csv(results, "data/processed/feature_analysis.csv")
-write_csv(first_results, "data/processed/first_look_analysis.csv")
+write_csv(results, "data/processed/first_look_analysis.csv")
 ```
 
 ## Forest Plot
@@ -237,7 +215,7 @@ ggplot(plot_df, aes(or, feature)) +
   labs(
     title = "DCD Progression: Unadjusted Marginal Odds Ratios (95% CI)",
     subtitle = sprintf(
-      "%d features; %d unstable fits excluded (MICE m=5, Rubin's Rules)",
+      "%d features; %d unstable fits excluded (First-Look, MICE m=5, Rubin's Rules)",
       nrow(plot_df), sum(results$unstable)
     ),
     x = "Unadjusted Marginal Odds Ratio per SD (log scale)", y = NULL
@@ -262,8 +240,6 @@ ggsave("output/glmm_forest_plot_r.png", width = 10, height = 12, dpi = 300)
   so discrete-time survival with a patient frailty term is unavailable.
 - **Univariate screens.** Each feature is modelled alone with FDR correction across
   features. The odds ratios are unadjusted, not independent effects.
-- **Equal patient weighting.** Averaging gives a patient with twelve observations the
-  same weight as one with two.
 - **Imputation ignores clustering** and uses every other column as a predictor. Check
   the logged-events count above if the patient count is small.
 - **Feature correlation** is covered in `01_explore-data.py`; not duplicated here.
