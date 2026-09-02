@@ -51,7 +51,7 @@ results <- map_df(setdiff(names(df_first_look), label), function(f) {
   summary(pool(as.mira(fits)), conf.int = TRUE) %>% 
     filter(term != "(Intercept)") %>% 
     mutate(feature = f) %>% 
-    select(feature, estimate, std_error, p_value, ci_low = `2.5 %`, ci_high = `97.5 %`)
+    select(feature, estimate, std_error = std.error, p_value = p.value, ci_low = `2.5 %`, ci_high = `97.5 %`)
 }) %>% 
   mutate(p_adj = p.adjust(p_value, "fdr")) %>% 
   arrange(p_value)
