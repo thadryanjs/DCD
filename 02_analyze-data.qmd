@@ -7,7 +7,9 @@ title: 'Statistical Analysis'
 ## Statistical Framework: First-Look GLM
 The outcome (progression to death) is a patient-level constant. The **First-Look logistic regression (GLM)** is the proper inferential model; we analyze only the baseline (first) observation per patient to ensure features precede the outcome and align with the ML unit of analysis.
 
-Missing values are handled via Multiple Imputation by Chained Equations (MICE, $m=5$). Results are pooled using Rubin's rules. Features are scaled, so estimates are log-odds per standard deviation.
+Missing values are handled using Multiple Imputation by Chained Equations (MICE) with $m=5$ imputations. Each feature is fitted once per imputed dataset, and the results are pooled using Rubin's rules to account for the uncertainty introduced by the imputation process. Features are scaled, so estimates are log-odds per standard deviation.
+
+**Note on Interpretation:** The `estimate` in the output CSV is the log-odds per standard deviation of the baseline measurement (unadjusted marginal effect). These are univariate screens, not mutually adjusted effects. In `04_analyze-model.qmd`, these are exponentiated to produce Odds Ratios (OR).
 
 ```{r}
 library(tidyverse)
