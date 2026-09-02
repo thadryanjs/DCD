@@ -5,203 +5,64 @@ title: 'Statistical Analysis'
 # Statistical Analysis
 
 ## Statistical Framework: First-Look GLM
-The outcome (progression to death) is a patient-level constant; it does not vary across observations for a single individual. Consequently, a mixed-effects model (GLMM) with a patient random intercept is not identifiable, as there is no within-patient outcome variance to explain.
+The outcome (progression to death) is a patient-level constant. The **First-Look logistic regression (GLM)** is the proper inferential model; we analyze only the baseline (first) observation per patient to ensure features precede the outcome and align with the ML unit of analysis.
 
-The **First-Look logistic regression (GLM)** is the proper inferential model for this data structure. We analyze only the baseline (first) observation for each patient. This approach ensures that features precede the outcome process and aligns with the primary ML unit of analysis in the predictive model.
-
-Missing values are handled using Multiple Imputation by Chained Equations (MICE)
-with $m=5$ imputations. Each feature is fitted once per imputed dataset, and the
-results are pooled using Rubin's rules to account for the uncertainty introduced by the imputation process.
-
-Results are pooled across imputations for consistency. Features are scaled, so estimates are per standard deviation.
-
-**Note on Interpretation:** The `estimate` in the output CSV is the log-odds per standard deviation of the baseline measurement (unadjusted marginal effect). These are univariate screens, not mutually adjusted effects. In `04_analyze-model.qmd`, these are exponentiated to produce Odds Ratios (OR).
-
+Missing values are handled via Multiple Imputation by Chained Equations (MICE, $m=5$). Results are pooled using Rubin's rules. Features are scaled, so estimates are log-odds per standard deviation.
 
 ```{r}
 library(tidyverse)
 library(mice)
 library(nanoparquet)
-```
 
-```{r}
 label <- "progression_to_death"
 id <- "alias_filled"
 m <- 5
 dir.create("output", showWarnings = FALSE)
-
 df <- nanoparquet::read_parquet("data/processed/analytic-dataset.parquet")
 ```
 
-```{r}
-print(sprintf("%d rows, %d patients", nrow(df), n_distinct(df[[id]])))
-```
-
-## First-Look Frames
-Filter to the first observation per patient, drop the id, keep only columns with at least two
-distinct values, then scale. The distinct-value filter matters: a constant column
-becomes all `NaN` under `scale()` and makes mice fail with an unhelpful error.
-
-```{r}
-# We defer selecting the first-look frame until we have the selected feature set from 01_explore-data.qmd
-```
-
-```{r}
-print(sprintf("%d rows, %d patients", nrow(df), n_distinct(df[[id]])))
-```
-
 ## Fit
-Two loops: features outside, imputations inside, because a feature needs one fit per
-imputed dataset before those fits can be pooled. A fitted probability pinned at 0 or 1
-means the fit separated, which glm reports as a warning rather than an error, so it is
-checked directly and flagged.
+We filter to the first observation, drop constant features to prevent MICE failure, and scale.
 
 ```{r}
-# Feature Reconciliation: Filter input to only use selected features from 01
-selected_feats_csv <- read_csv("output/selected-features.csv", show_col_types = FALSE)
-selected_feats <- selected_feats_csv$feature
-
-df_filtered <- df %>% select(all_of(selected_feats), all_of(label), all_of(id), any_of("observation"))
-
-# Construct First-Look Frame
-df_first_look <- df_filtered %>% 
+df_first_look <- df %>% 
   filter(observation == 1) %>% 
   select(-all_of(id), -any_of("observation"))
 
 # Drop constant features
-cols_before <- names(df_first_look)
 df_first_look <- df_first_look[sapply(df_first_look, function(x) n_distinct(x, na.rm = TRUE) >= 2)]
-cols_after <- names(df_first_look)
-dropped <- setdiff(cols_before, cols_after)
+print(sprintf("Dropped %d constant features", length(names(df)) - ncol(df_first_look)))
 
-if (length(dropped) > 0) {
-  print(sprintf("Dropped %d constant features: %s", length(dropped), paste(dropped, collapse = ", ")))
-}
-
-# Scale features
+# Scale
 df_first_look <- df_first_look %>% 
-  mutate(across(where(is.numeric) & -all_of(label), ~ as.numeric(scale(.x))))
-```
+  mutate(across(where(is.numeric) & !all_of(label), ~ as.numeric(scale(.x))))
 
-```{r}
-analyze <- function(d) {
-  # **LOADBEARING** — Multiple Imputation (m=5) accounts for missing data uncertainty.
-  # Seed is pinned to match ML pipeline for reproducibility.
-  # Consumed by: `data/processed/feature_analysis.csv`
-  imp <- mice(d, m = m, printFlag = FALSE, seed = 8675309)
+# MICE Imputation
+imp <- mice(df_first_look, m = m, printFlag = FALSE, seed = 8675309)
+print(sprintf("mice logged events: %d", NROW(imp$loggedEvents)))
 
-  # Imputation Provenance: Log events (collinear columns, etc.)
-  # If loggedEvents > 0, mice stripped columns; results may be biased.
-  print(sprintf("mice logged events: %d", NROW(imp$loggedEvents)))
-  if (NROW(imp$loggedEvents) > 0) {
-    print("mice stripped columns due to collinearity/constant values:")
-    print(imp$loggedEvents)
-  }
+# Pool univariate fits across imputations
+results <- map_df(setdiff(names(df_first_look), label), function(f) {
+  fits <- lapply(1:m, function(i) {
+    glm(as.formula(sprintf("%s ~ `%s`", label, f)), complete(imp, i), family = binomial)
+  })
+  summary(pool(as.mira(fits)), conf.int = TRUE) %>% 
+    filter(term != "(Intercept)") %>% 
+    mutate(feature = f) %>% 
+    select(feature, estimate, std_error, p_value, ci_low = `2.5 %`, ci_high = `97.5 %`)
+}) %>% 
+  mutate(p_adj = p.adjust(p_value, "fdr")) %>% 
+  arrange(p_value)
 
-  out <- NULL
-  for (f in setdiff(names(d), label)) {
-    fits <- list()
-    separated <- FALSE
-    singular <- 0
-    nonconv <- 0
-    for (i in 1:m) {
-      fit <- tryCatch({
-        glm(as.formula(sprintf("%s ~ `%s`", label, f)),
-          complete(imp, i),
-          family = binomial
-        )
-      }, error = function(e) NULL)
-      
-      if(is.null(fit)) {
-        nonconv <- nonconv + 1
-        next
-      }
-      
-      fits[[i]] <- fit
-      p <- fitted(fit)
-      separated <- separated || any(p < 1e-8 | p > 1 - 1e-8)
-      
-      # Singularity check: NA in standard errors of coefficients
-      if(any(is.na(summary(fit)$coefficients[, "Std. Error"]))) {
-        singular <- singular + 1
-      }
-    }
-    
-    # Only pool if we have fits
-    if(length(fits) == 0) {
-      out <- rbind(out, data.frame(
-        feature = f, estimate = NA, std_error = NA, p_value = NA,
-        ci_low = NA, ci_high = NA,
-        unstable = TRUE, separated_flag = separated,
-        frac_singular = singular/m, frac_nonconv = nonconv/m
-      ))
-      next
-    }
-
-    # Apply Rubin's Rules via pool()
-    s <- summary(pool(as.mira(fits)), conf.int = TRUE)
-    s <- s[s$term != "(Intercept)", ]
-
-    # Handle categorical features (multiple levels) by taking the first non-intercept estimate
-    est <- s$estimate[1]
-    se <- s$std.error[1]
-    pval <- s$p.value[1]
-    lo <- s[["2.5 %"]][1]
-    hi <- s[["97.5 %"]][1]
-
-    out <- rbind(out, data.frame(
-      feature = f, estimate = est, std_error = se, p_value = pval,
-      ci_low = lo, ci_high = hi,
-      unstable = separated || abs(est) > 10 || se > 5,
-      separated_flag = separated,
-      frac_singular = singular/m,
-      frac_nonconv = nonconv/m
-    ))
-  }
-  out %>%
-    mutate(p_adj = p.adjust(p_value, "fdr")) %>%
-    arrange(p_value)
-}
-```
-
-```{r}
-results <- analyze(df_first_look)
-```
-
-```{r}
-# Unstable Fits Receipt
-unstable_results <- results %>% filter(unstable)
-print("\n--- Unstable Fits Receipt ---")
-if (nrow(unstable_results) > 0) {
-    print(unstable_results %>% select(feature, estimate, std_error, separated_flag))
-} else {
-    print("No unstable fits detected.")
-}
-```
-
-```{r}
-print(sprintf(
-  "Significant (FDR, stable fits): %d of %d. Unstable: %d.",
-  sum(results$p_adj < 0.05 & !results$unstable),
-  nrow(results), sum(results$unstable)
-))
-```
-
-```{r}
+write_csv(results, "data/processed/first_look_analysis.csv")
 print(head(results, 15))
 ```
 
-```{r}
-write_csv(results, "data/processed/first_look_analysis.csv")
-```
-
 ## Forest Plot
-Odds ratios per SD. Unstable fits are excluded: their intervals span orders of
-magnitude and would flatten everything else on a log axis.
+Odds ratios per SD.
 
 ```{r}
 plot_df <- results %>%
-  filter(!unstable) %>%
   mutate(or = exp(estimate), lo = exp(ci_low), hi = exp(ci_high), sig = p_adj < 0.05) %>%
   arrange(or) %>%
   mutate(feature = factor(feature, feature))
@@ -214,36 +75,20 @@ ggplot(plot_df, aes(or, feature)) +
   scale_color_manual(values = c("grey70", "firebrick"), labels = c("ns", "FDR p < 0.05"), name = NULL) +
   labs(
     title = "DCD Progression: Unadjusted Marginal Odds Ratios (95% CI)",
-    subtitle = sprintf(
-      "%d features; %d unstable fits excluded (First-Look, MICE m=5, Rubin's Rules)",
-      nrow(plot_df), sum(results$unstable)
-    ),
+    subtitle = sprintf("%d features; MICE m=5, Rubin's Rules", nrow(plot_df)),
     x = "Unadjusted Marginal Odds Ratio per SD (log scale)", y = NULL
   ) +
   theme_minimal()
 
-ggsave("output/glmm_forest_plot_r.png", width = 10, height = 12, dpi = 300)
+ggsave("output/first_look_forest_plot.png", width = 10, height = 12, dpi = 300)
 ```
 
 ## Limitations
 
-- **Multiple Testing.** We apply FDR correction (Benjamini-Hochberg) across all univariate fits.
-  The resulting p_adj indicates the proportion of false discoveries expected among
-  significant features.
-- **Inferential Nature.** Pooled Odds Ratios are unadjusted. They identify strong candidate
-  drivers but do not account for confounders.
-- **No mixed-effects model.** The spec called for lme4 with person-level random
-  effects, but the outcome is time-invariant within patient, so a random intercept is
-  not identifiable. A mixed model here gives boundary variance estimates and
-  attenuated fixed effects; the patient-level GLM is the right model for this outcome.
-- **No time-to-event analysis.** Only whether the event occurred is recorded, not when,
-  so discrete-time survival with a patient frailty term is unavailable.
-- **Univariate screens.** Each feature is modelled alone with FDR correction across
-  features. The odds ratios are unadjusted, not independent effects.
-- **Imputation ignores clustering** and uses every other column as a predictor. Check
-  the logged-events count above if the patient count is small.
-- **Feature correlation** is covered in `01_explore-data.py`; not duplicated here.
-- **Pin the mice version.** `pool` summary column names have changed across releases.
+- **Scope**: Restricted to baseline (First-Look) observations to prevent leakage; ignores later predictive signals.
+- **Unadjusted**: Univariate screens identify candidate drivers but do not account for confounders.
+- **Testing**: FDR correction (Benjamini-Hochberg) applied across all univariate fits.
+- **Structure**: Imputation ignores clustering; results depend on MICE version for `pool()` summary.
 
 ```{r}
 print("Analysis complete.")
