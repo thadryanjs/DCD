@@ -55,6 +55,20 @@ df = pl.read_parquet(data_dir / "analytic-dataset.parquet")
 print(f"Loaded model-ready dataset: {df.shape}")
 ```
 
+# Data Audit & Type Verification
+Confirm data types and structure before feature identification.
+
+```{python}
+print("--- Data Audit ---")
+print(f"Dataset shape: {df.shape}")
+print("\nSchema:")
+print(df.schema)
+print("\nHead:")
+print(df.head())
+print("\nTail:")
+print(df.tail())
+```
+
 # Feature Identification & Preprocessing
 
 For ML, we use in-fold imputation to avoid leakage. The `IterativeImputer` (a Bayesian Ridge
@@ -65,16 +79,36 @@ test fold. This ensures that the imputation logic is derived only from the train
 id_cols = ["alias", "alias_filled", "observation"]
 numeric_cols = [c for c in df.columns if df.schema[c].is_numeric() and c != "progression_to_death" and c not in id_cols]
 categorical_cols = [c for c in df.columns if not df.schema[c].is_numeric() and not df.schema[c].is_temporal() and c != "progression_to_death" and c not in id_cols]
-```
 
-```{python}
-#| lines_to_next_cell: 1
-# Preprocessor is now built inside run_ml_pipeline to avoid global scope issues
-print(
-    f"Feature set identified:\n"
-    f"  Numeric: {len(numeric_cols)}\n"
-    f"  Categorical: {len(categorical_cols)}"
-)
+print("\n--- Feature Audit ---")
+print(f"Numeric columns ({len(numeric_cols)}):\n{numeric_cols}")
+print(f"\nCategorical columns ({len(categorical_cols)}):\n{categorical_cols}")
+
+# Parity Check vs R Pipeline
+selected_feats_path = Path("output/selected-features.csv")
+if selected_feats_path.exists():
+    selected_feats = pl.read_csv(selected_feats_path)["feature"].to_list()
+    ml_feats = numeric_cols + categorical_cols
+    
+    missing_in_ml = set(selected_feats) - set(ml_feats)
+    extra_in_ml = set(ml_feats) - set(selected_feats)
+    
+    print("\n--- Parity Check (vs selected-features.csv) ---")
+    if not missing_in_ml and not extra_in_ml:
+        print("SUCCESS: ML feature set matches R selected features exactly.")
+    else:
+        if missing_in_ml:
+            print(f"MISSING in ML: {missing_in_ml}")
+        if extra_in_ml:
+            print(f"EXTRA in ML: {extra_in_ml}")
+else:
+    print("\n--- Parity Check ---")
+    print("Skipped: output/selected-features.csv not found.")
+
+print("\n--- Final Receipts ---")
+print(f"Total Features Entering Pipeline: {len(numeric_cols) + len(categorical_cols)}")
+print(f"  - Numeric: {len(numeric_cols)}")
+print(f"  - Categorical: {len(categorical_cols)}")
 ```
 
 # Model Pipeline Definition
