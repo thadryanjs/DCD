@@ -11,6 +11,8 @@ Missing values are handled using Multiple Imputation by Chained Equations (MICE)
 
 **Note on Interpretation:** The `estimate` in the output CSV is the log-odds per standard deviation of the baseline measurement (unadjusted marginal effect). These are univariate screens, not mutually adjusted effects. In `04_analyze-model.qmd`, these are exponentiated to produce Odds Ratios (OR).
 
+**Multi-level categoricals** get one omnibus joint Wald test per feature (all levels jointly vs intercept-only, pooled across imputations) — no single OR exists, so their `estimate` is NA and they do not appear on the OR forest plot. FDR is applied across features, one test each.
+
 ```{r}
 library(tidyverse)
 library(mice)
@@ -47,7 +49,10 @@ df_first_look <- df_first_look %>%
 imp <- mice(df_first_look, m = m, printFlag = FALSE, seed = 8675309)
 print(sprintf("mice logged events: %d", NROW(imp$loggedEvents)))
 
-# Pool univariate fits across imputations
+# Pool univariate fits across imputations.
+# FDR family = one test per FEATURE, not per dummy level. Multi-level
+# categoricals get one omnibus joint Wald test (mice::D1) vs intercept-only,
+# so the reference level cannot manufacture extra tests.
 results <- map_df(setdiff(names(df_first_look), label), function(f) {
   fits <- lapply(1:m, function(i) {
     glm(as.formula(sprintf("%s ~ `%s`", label, f)), complete(imp, i), family = binomial)
@@ -58,10 +63,27 @@ results <- map_df(setdiff(names(df_first_look), label), function(f) {
     p <- fitted(fit); any(p < 1e-8 | p > 1 - 1e-8)
   }))
 
-  summary(pool(as.mira(fits)), conf.int = TRUE) %>%
-    filter(term != "(Intercept)") %>%
-    mutate(feature = term, separated = separated) %>%
-    select(feature, estimate, std_error = std.error, p_value = p.value, ci_low = `2.5 %`, ci_high = `97.5 %`, separated)
+  pooled <- summary(pool(as.mira(fits)), conf.int = TRUE) %>%
+    filter(term != "(Intercept)")
+
+  if (nrow(pooled) == 1) {
+    # Numeric or binary feature: the single term IS the feature effect
+    pooled %>%
+      mutate(feature = f, separated = separated, omnibus = FALSE) %>%
+      select(feature, estimate, std_error = std.error, p_value = p.value, ci_low = `2.5 %`, ci_high = `97.5 %`, separated, omnibus)
+  } else {
+    # Multi-level categorical: joint test of all levels vs intercept-only,
+    # pooled across imputations. No single OR exists — estimate/CI stay NA.
+    fit0 <- lapply(1:m, function(i) {
+      glm(as.formula(sprintf("%s ~ 1", label)), complete(imp, i), family = binomial)
+    })
+    omnibus_p <- D1(as.mira(fits), as.mira(fit0))$pvalue
+    tibble(
+      feature = f, estimate = NA_real_, std_error = NA_real_,
+      p_value = omnibus_p, ci_low = NA_real_, ci_high = NA_real_,
+      separated = separated, omnibus = TRUE
+    )
+  }
 }) %>%
   mutate(p_adj = p.adjust(p_value, "fdr"),
          reject_null = p_adj < 0.05) %>%
@@ -76,7 +98,7 @@ Odds ratios per SD.
 
 ```{r}
 plot_df <- results %>%
-  filter(!separated) %>%
+  filter(!separated, !is.na(estimate)) %>%
   mutate(or = exp(estimate), lo = exp(ci_low), hi = exp(ci_high), sig = reject_null) %>%
   arrange(or) %>%
   mutate(feature = factor(feature, levels = rev(unique(feature))))
@@ -101,7 +123,7 @@ ggsave("output/first_look_forest_plot.png", width = 10, height = 12, dpi = 300)
 
 - **Scope**: Restricted to baseline (First-Look) observations to prevent leakage; ignores later predictive signals.
 - **Unadjusted**: Univariate screens identify candidate drivers but do not account for confounders.
-- **Testing**: FDR correction (Benjamini-Hochberg) applied across all univariate fits.
+- **Testing**: FDR correction (Benjamini-Hochberg) across features — one test per feature; multi-level categoricals use a pooled joint Wald test instead of per-level dummies.
 - **Structure**: Imputation ignores clustering; results depend on MICE version for `pool()` summary.
 
 ```{r}

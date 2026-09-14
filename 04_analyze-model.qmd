@@ -215,12 +215,17 @@ results_path = data_dir / "first_look_analysis.csv"
 if results_path.exists():
     results_df = pd.read_csv(results_path)
 
-    # Compute Odds Ratios from coefficients
-    results_df['OR'] = np.exp(results_df['estimate'])
-    results_df['lower_CI'] = np.exp(results_df['ci_low'])
-    results_df['upper_CI'] = np.exp(results_df['ci_high'])
+    # Omnibus rows (multi-level categoricals, joint Wald test in 02) carry no
+    # single OR: they stay in the CSV but cannot appear on a per-OR forest plot.
+    omnibus_df = results_df[results_df['estimate'].isna()]
+    plot_df = results_df[results_df['estimate'].notna()].copy()
 
-    plot_df = results_df.sort_values('OR')
+    # Compute Odds Ratios from coefficients
+    plot_df['OR'] = np.exp(plot_df['estimate'])
+    plot_df['lower_CI'] = np.exp(plot_df['ci_low'])
+    plot_df['upper_CI'] = np.exp(plot_df['ci_high'])
+
+    plot_df = plot_df.sort_values('OR')
 
     plt.figure(figsize=(10, 12))
     plt.axvline(x=1, color='red', linestyle='--', alpha=0.7)
@@ -261,6 +266,10 @@ if results_path.exists():
 
     print("\nTop Pooled Odds Ratios:")
     print(plot_df[['feature', 'OR', 'p_adj']].head(10).to_string(index=False))
+
+    if len(omnibus_df) > 0:
+        print("\nOmnibus-tested features (joint Wald test, no single OR):")
+        print(omnibus_df[['feature', 'p_value', 'p_adj', 'reject_null']].to_string(index=False))
 else:
     print("ERROR: Results not found. Please run 02_analyze-data.R first.")
 ```

@@ -28,18 +28,28 @@ analyze-model:
 secondary-check:
     pixi run quarto render 05_secondary-check.qmd
 
+# Standalone update deck (not a book chapter). Quarto's --to pdf forces the
+# LaTeX writer (continuous doc); quarto docs specify the revealjs print
+# stylesheet as THE pdf path. This drives it headlessly: ?print-pdf view +
+# virtual-time-budget lets the deck finish initializing before printing.
+summary-update:
+    pixi run quarto render 05_summary-update.qmd --to revealjs
+    chromium --headless --disable-gpu --no-pdf-header-footer \
+        --virtual-time-budget=15000 \
+        --print-to-pdf=05_summary-update.pdf "file://$(pwd)/05_summary-update.html?print-pdf"
+
 # Full book. Chapter order comes from _quarto.yml, not from this recipe.
 render-all:
     just run-all
 
-run-all:
-    pixi run quarto render *.qmd
+# Pipeline order is explicit here — NOT inferred from filenames or the glob.
+run-all: process-data explore-data analyze-data model analyze-model
 
 # Force a full recompute, ignoring the freeze cache. Use when data changed
-# rather than code.
+# rather than code, or when an upstream step's results changed.
 run-all-fresh:
     rm -rf _freeze
-    pixi run quarto render
+    just run-all
 
 preview:
     pixi run quarto preview
@@ -65,7 +75,7 @@ bundle:
 clean:
     mkdir -p reports
     mv output reports/ 2>/dev/null || true
-    rm -rf *_files *.html quarto_ipynb .quarto _book
+    rm -rf *_files *.html *.quarto_ipynb* __pycache__ .quarto _book _freeze
 
 start-kernel:
   pixi run jupyter notebook --no-browser

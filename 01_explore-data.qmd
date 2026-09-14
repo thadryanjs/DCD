@@ -400,7 +400,11 @@ leak_justifications <- tibble(
     "tod_to_perfusion",
     "sbp90_to_declaration",
     "warm_ischemic_time_agonal_phase_to_cooling",
-    "did_patient_expire_within_timeframe"
+    "did_patient_expire_within_timeframe",
+    "unit",
+    "extubation_location",
+    "was_heparin_administered",
+    "heparin_dose_units"
   ),
   reason = c(
     "Post-outcome: pump time recorded during DCD/NRP",
@@ -408,7 +412,11 @@ leak_justifications <- tibble(
     "Post-outcome: time from declaration to perfusion",
     "Post-outcome: time from SBP<90 to declaration",
     "Post-outcome: agonal phase duration",
-    "Direct proxy: patient expiration status"
+    "Direct proxy: patient expiration status",
+    "Post-outcome: care unit reflects post-declaration care pathway",
+    "Post-outcome: extubation site reflects care pathway around withdrawal",
+    "Post-outcome: heparin administered after death for organ preservation",
+    "Post-outcome: dose of the post-death heparin administration"
   )
 )
 
