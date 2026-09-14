@@ -105,5 +105,5 @@ ggsave("output/first_look_forest_plot.png", width = 10, height = 12, dpi = 300)
 - **Structure**: Imputation ignores clustering; results depend on MICE version for `pool()` summary.
 
 ```{r}
-```
 print("Analysis complete.")
+```

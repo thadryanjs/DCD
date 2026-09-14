@@ -420,7 +420,7 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
     # Create Final Summary Table: Model, Test AUC, CV Low, CV Median, CV High
     summary_table = []
     for name in pipelines.keys():
-        scores = model_results.filter(pl.col("model") == name).filter(pl.col("metric") == "auc")["value"].to_numpy()
+        scores = cv_results_df.filter(pl.col("model") == name).filter(pl.col("metric") == "auc")["value"].to_numpy()
         clean_scores = scores[~np.isnan(scores)]
         
         if len(clean_scores) == 0:
