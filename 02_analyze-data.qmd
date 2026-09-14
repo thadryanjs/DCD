@@ -27,16 +27,20 @@ df <- nanoparquet::read_parquet("data/processed/analytic-dataset.parquet")
 We filter to the first observation, drop constant features to prevent MICE failure, and scale.
 
 ```{r}
-df_first_look <- df %>% 
-  filter(observation == 1) %>% 
+df_first_look <- df %>%
+  filter(observation == 1) %>%
   select(-all_of(id), -any_of("observation"))
 
 # Drop constant features
+before <- names(df_first_look)
 df_first_look <- df_first_look[sapply(df_first_look, function(x) n_distinct(x, na.rm = TRUE) >= 2)]
-print(sprintf("Dropped %d constant features", length(names(df)) - ncol(df_first_look)))
+dropped <- setdiff(before, names(df_first_look))
+if (length(dropped) > 0) {
+  print(sprintf("Dropped constant features: %s", paste(dropped, collapse = ", ")))
+}
 
 # Scale
-df_first_look <- df_first_look %>% 
+df_first_look <- df_first_look %>%
   mutate(across(where(is.numeric) & !all_of(label), ~ as.numeric(scale(.x))))
 
 # MICE Imputation
@@ -48,12 +52,19 @@ results <- map_df(setdiff(names(df_first_look), label), function(f) {
   fits <- lapply(1:m, function(i) {
     glm(as.formula(sprintf("%s ~ `%s`", label, f)), complete(imp, i), family = binomial)
   })
-  summary(pool(as.mira(fits)), conf.int = TRUE) %>% 
-    filter(term != "(Intercept)") %>% 
-    mutate(feature = f) %>% 
-    select(feature, estimate, std_error = std.error, p_value = p.value, ci_low = `2.5 %`, ci_high = `97.5 %`)
-}) %>% 
-  mutate(p_adj = p.adjust(p_value, "fdr")) %>% 
+
+  # Separation check: glm reports separation as warning; manually flag if probabilities are pinned
+  separated <- any(sapply(fits, function(fit) {
+    p <- fitted(fit); any(p < 1e-8 | p > 1 - 1e-8)
+  }))
+
+  summary(pool(as.mira(fits)), conf.int = TRUE) %>%
+    filter(term != "(Intercept)") %>%
+    mutate(feature = term, separated = separated) %>%
+    select(feature, estimate, std_error = std.error, p_value = p.value, ci_low = `2.5 %`, ci_high = `97.5 %`, separated)
+}) %>%
+  mutate(p_adj = p.adjust(p_value, "fdr"),
+         reject_null = p_adj < 0.05) %>%
   arrange(p_value)
 
 write_csv(results, "data/processed/first_look_analysis.csv")
@@ -65,16 +76,17 @@ Odds ratios per SD.
 
 ```{r}
 plot_df <- results %>%
-  mutate(or = exp(estimate), lo = exp(ci_low), hi = exp(ci_high), sig = p_adj < 0.05) %>%
+  filter(!separated) %>%
+  mutate(or = exp(estimate), lo = exp(ci_low), hi = exp(ci_high), sig = reject_null) %>%
   arrange(or) %>%
-  mutate(feature = factor(feature, levels = rev(feature)))
+  mutate(feature = factor(feature, levels = rev(unique(feature))))
 
 ggplot(plot_df, aes(or, feature)) +
   geom_vline(xintercept = 1, color = "red", linetype = "dashed") +
   geom_errorbarh(aes(xmin = lo, xmax = hi), height = 0.2) +
   geom_point(aes(color = sig), size = 2) +
   scale_x_log10() +
-  scale_color_manual(values = c("grey70", "firebrick"), labels = c("ns", "FDR p < 0.05"), name = NULL) +
+  scale_color_manual(values = c("FALSE" = "grey70", "TRUE" = "firebrick"), labels = c("ns", "FDR p < 0.05"), name = NULL) +
   labs(
     title = "DCD Progression: Unadjusted Marginal Odds Ratios (95% CI)",
     subtitle = sprintf("%d features; MICE m=5, Rubin's Rules", nrow(plot_df)),
@@ -93,5 +105,5 @@ ggsave("output/first_look_forest_plot.png", width = 10, height = 12, dpi = 300)
 - **Structure**: Imputation ignores clustering; results depend on MICE version for `pool()` summary.
 
 ```{r}
-print("Analysis complete.")
 ```
+print("Analysis complete.")

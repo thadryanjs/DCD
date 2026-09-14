@@ -137,10 +137,15 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
     train_patients_df = pd.DataFrame({"alias_filled": groups[train_idx]})
     train_patients_df.to_csv(data_dir / f"train_patients_{prefix}.csv", index=False)
 
+    groups_train, groups_test = groups[train_idx], groups[test_idx]
     x_train, x_test = x_df.iloc[train_idx], x_df.iloc[test_idx]
     y_train, y_test = y[train_idx], y[test_idx]
-    groups_train, groups_test = groups[train_idx], groups[test_idx]
-    assert len(set(groups_train).intersection(set(groups_test))) == 0, "Patient leakage in train/test split"
+
+    # Leakage Audit: Explicitly verify patient isolation
+    leakage_set = set(groups_train).intersection(set(groups_test))
+    leakage_count = len(leakage_set)
+    print(f"Leakage Audit: {leakage_count} patients shared between train and test. {'✓ CLEAN' if leakage_count == 0 else '✗ LEAKAGE DETECTED'}")
+    assert leakage_count == 0, f"Patient leakage detected: {leakage_set}"
 
     # Split Receipt
     train_patients = len(np.unique(groups_train))
@@ -252,7 +257,12 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
                 # Renamed from gr_tr_out to avoid shadowing
                 groups_outer_train = groups_train[outer_train_idx]
                 groups_outer_test = groups_train[outer_test_idx]
-                assert len(set(groups_outer_train).intersection(set(groups_outer_test))) == 0, f"Patient leakage in CV fold {fold_idx} (repeat {repeat})"
+                # Leakage Audit: Explicitly verify patient isolation
+                leakage_set = set(groups_outer_train).intersection(set(groups_outer_test))
+                leakage_count = len(leakage_set)
+                if leakage_count > 0:
+                    print(f"  ✗ LEAKAGE in Fold {fold_idx+1} (repeat {repeat}): {leakage_set}")
+                assert leakage_count == 0, f"Patient leakage in CV fold {fold_idx} (repeat {repeat})"
 
                 if name == "Logistic Regression":
                     stats = get_class_stats(y_te_out, groups_outer_test)
@@ -371,6 +381,7 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
 
     # Final Test Set Validation
     model_final_params = {}
+    test_metrics = {}
 
     for name in pipelines.keys():
         print(f"\nEvaluating {name} on Test Set ({prefix})...")
@@ -391,17 +402,42 @@ def run_ml_pipeline(df, numeric_cols, categorical_cols, prefix="full"):
 
         y_pred = best_model.predict(x_test)
         y_prob = best_model.predict_proba(x_test)[:, 1]
+        auc_test = roc_auc_score(y_test, y_prob)
+        
         print(
             f"Test Metrics for {name} ({prefix}):\n"
             f"  Accuracy  : {accuracy_score(y_test, y_pred):.3f}\n"
             f"  Precision : {precision_score(y_test, y_pred, zero_division=0):.3f}\n"
             f"  Recall    : {recall_score(y_test, y_pred, zero_division=0):.3f}\n"
             f"  F1 Score  : {f1_score(y_test, y_pred, zero_division=0):.3f}\n"
-            f"  AUC       : {roc_auc_score(y_test, y_prob):.3f}"
+            f"  AUC       : {auc_test:.3f}"
         )
+        test_metrics[name] = auc_test
 
     with open(data_dir / f"model_params_{prefix}.json", "w") as f:
         json.dump(model_final_params, f)
+
+    # Create Final Summary Table: Model, Test AUC, CV Low, CV Median, CV High
+    summary_table = []
+    for name in pipelines.keys():
+        scores = model_results.filter(pl.col("model") == name).filter(pl.col("metric") == "auc")["value"].to_numpy()
+        clean_scores = scores[~np.isnan(scores)]
+        
+        if len(clean_scores) == 0:
+            continue
+
+        summary_table.append({
+            "model": name,
+            "test_set_auc": test_metrics[name],
+            "cv_low": np.min(clean_scores),
+            "cv_median": np.median(clean_scores),
+            "cv_high": np.max(clean_scores)
+        })
+    
+    summary_df = pd.DataFrame(summary_table)
+    summary_df.to_csv(plots_dir / f"final_performance_summary_{prefix}.csv", index=False)
+    print(f"\n--- Final Performance Summary ({prefix}) ---")
+    print(summary_df.to_string(index=False))
 
     # CV Performance Visualization
     results_df = cv_results_df.to_pandas()
