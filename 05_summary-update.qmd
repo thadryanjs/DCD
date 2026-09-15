@@ -5,58 +5,36 @@ format:
     theme: default
     slide-level: 2
     smaller: true
+    embed-resources: true
 execute:
   echo: false
 ---
 
 ## Disclaimers
 
-- **Preliminary model** — not yet reviewed by clinical staff.
-- **Results may shift** until the code is finalized.
-- Small cohort; nothing here is externally validated.
+- The is a preliminary model made to asses signal, not the most sophisticated possible approach.
+- This has not yet been reviewed by clinical staff.
+- Results may shift until the analysis plan (and thus the code) is finalized.
+- The cohort is small; nothing here is externally validated.
 
 ## What we did
 
-- Restricted the data to each patient's **first (baseline) observation**.
-- Excluded post-treatment variables (based on non-expert review - this is an area where direct collaboration is needed in the future)
-- Excluded variables with >90% missing values.
+- Restricted the data to each patient's first (baseline) observation.
+- Excluded post-treatment variables (based on non-expert review - this is an area where direct collaboration would be needed in the future for a final model).
+- Excluded variables with >90% missing values, leaving just under 20 features in total.
 - Predicted using patient-grouped nested cross-validation. Minimal missing data was imputed via fit in-fold only.
 
 ## What we saw
 
-- **Prediction holds ~0.70 AUC from baseline data alone.**
-- Performance is essentially identical with fuller data — **no late-observation leakage; deployable at intake.**
-- **Every prediction comes from pre-treatment variables only** — clean under audit.
+- In repeated cross-validation, the best model suggests that around 0.70 AUC may be achievable using baseline data alone, though this is preliminary.
+- Performance is similar with fuller data (for the simpler models it is nearly unchanged), which suggests no late-observation leakage and means the model could potentially be deployed at intake.
 
 ## Discrimination
 
-```{python}
-#| label: fig-auc
-#| fig-cap: "Repeated-CV medians (bars) vs held-out test (diamonds). Frozen receipts from the definitive run."
-import matplotlib.pyplot as plt
-import numpy as np
+![Cross-validation AUC by model on baseline data only (repeated nested CV). Numbers are the fixed results of the final run, not recomputed here.](output/cv_auc_boxplot_first_look.png)
 
-models = ["Logistic Regression", "Random Forest", "XGBoost"]
-cv_first = [0.683, 0.703, 0.625]
-cv_full = [0.685, 0.692, 0.680]
-test_first = [0.663, 0.712, 0.607]
-test_full = [0.715, 0.645, 0.555]
 
-x, w = np.arange(3), 0.35
-fig, ax = plt.subplots(figsize=(7.2, 3.2))
-b1 = ax.bar(x - w / 2, cv_first, w, label="CV median — first look", color="#4C72B0")
-b2 = ax.bar(x + w / 2, cv_full, w, label="CV median — full data", color="#9BB7D4")
-ax.scatter(x - w / 2, test_first, marker="D", s=26, color="black", zorder=3)
-ax.scatter(x + w / 2, test_full, marker="D", s=26, color="black", zorder=3)
-ax.scatter([], [], marker="D", s=26, color="black", label="Held-out test")
-ax.axhline(0.5, ls="--", lw=0.8, color="grey")
-ax.set_xticks(x, models, fontsize=9)
-ax.set_ylabel("AUC")
-ax.set_ylim(0.45, 0.8)
-ax.legend(frameon=False, fontsize=8, loc="lower right")
-for b in (*b1, *b2):
-    ax.text(b.get_x() + b.get_width() / 2, b.get_height() + 0.004,
-            f"{b.get_height():.3f}", ha="center", fontsize=7)
-fig.tight_layout()
-plt.show()
-```
+## Future directions
+- Verify feature selection and overall approach in direct communication with clinical experts
+  - For example, a full high level walkthrough of the pipeline and final variables with a collaborator.
+- Conduct a full, more sophisticated analysis using longitudinal approaches, neural networks, etc that leverage the full dataset.

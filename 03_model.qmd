@@ -36,7 +36,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score, roc_auc_score
 from xgboost import XGBClassifier
-from utils import get_preprocessor
+from src.utils import get_preprocessor
 ```
 
 ```{python}
