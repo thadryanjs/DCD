@@ -62,15 +62,18 @@ render-html:
 render-pdf:
     pixi run quarto render --to pdf
 
+# Share bundle: ONLY artifacts cleared to ship right now (prelim — nothing
+# reviewed by clinical staff). Everything else stays internal until cleared;
+# add files here only once they are safe to share.
 bundle:
-    mkdir -p reports/ship/plots reports/ship/data reports/ship/html
-    cp output/*.png reports/ship/plots/ 2>/dev/null || true
-    cp output/*.csv reports/ship/plots/ 2>/dev/null || true
-    cp data/processed/*.parquet reports/ship/data/ 2>/dev/null || true
-    cp data/processed/*.csv reports/ship/data/ 2>/dev/null || true
-    cp *.html reports/ship/html/ 2>/dev/null || true
-    cp *.qmd _quarto.yml pixi.toml pixi.lock justfile spec.md reports/ship/
-    echo "Bundle created in reports/ship/ (rendered HTML in reports/ship/html/)"
+    rm -rf reports/ship
+    mkdir -p reports/ship
+    cp variable-map.md reports/ship/
+    cp output/cv_auc_boxplot_first_look.png reports/ship/
+    cp output/final_performance_summary_first_look.csv reports/ship/
+    cp output/cv_metrics_per_fold_first_look.csv reports/ship/
+    cp 05_summary-update.pdf reports/ship/ 2>/dev/null || true
+    echo "Share bundle created in reports/ship/ (colname map, prelim AUC data, deck PDF)"
 
 clean:
     mkdir -p reports
